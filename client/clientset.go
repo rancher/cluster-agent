@@ -19,14 +19,14 @@ type Client struct {
 	nodeControllers map[string]NodeController
 }
 
-type V1 struct {
+type ClientSet struct {
 	// ClusterClientV1 is the client to connect to Kubernetes cluster API
 	ClusterClientV1 *Client
 	// ClusterControllerClientV1 is the client for connecting to a cluster controller
 	ClusterControllerClientV1 clusterv1.Interface
 }
 
-func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*V1, error) {
+func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*ClientSet, error) {
 	// build kubernetes config
 	var kubeConfig *rest.Config
 	var err error
@@ -65,7 +65,7 @@ func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*V1, error) {
 		return nil, fmt.Errorf("Failed to build cluster manager client: %v", err)
 	}
 
-	clientSet := &V1{kubernetesClient, clusterManagerClient}
+	clientSet := &ClientSet{kubernetesClient, clusterManagerClient}
 	return clientSet, nil
 }
 

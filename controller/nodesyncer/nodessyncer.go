@@ -10,12 +10,11 @@ import (
 	"github.com/rancher/cluster-agent/controller"
 	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
 	"k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type NodeSyncer struct {
-	client      *client.V1
+	client      *client.ClientSet
 	controller  client.NodeController
 	clusterName string
 }
@@ -29,8 +28,9 @@ func (n *NodeSyncer) GetName() string {
 	return "nodeSyncer"
 }
 
-func (n *NodeSyncer) Run(clusterName string, client *client.V1, ctx context.Context) error {
+func (n *NodeSyncer) Run(clusterName string, client *client.ClientSet, ctx context.Context) error {
 	n.clusterName = clusterName
+	n.client = client
 	n.controller = client.ClusterClientV1.Nodes("").Controller()
 	n.controller.AddHandler(n.sync)
 	n.controller.Start(1, ctx)
@@ -65,13 +65,16 @@ func (m *NodeSyncer) deleteClusterNode(nodeName string) error {
 
 func (m *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
 	clusterNodeName := fmt.Sprintf("%s-%s", m.clusterName, nodeName)
-	logrus.Infof("Getting cluster node [%s]", clusterNodeName)
-	existing, err := m.client.ClusterControllerClientV1.ClusterNodes("").Get(clusterNodeName, metav1.GetOptions{})
-	logrus.Infof("Got cluster node [%s]", clusterNodeName)
+	existing, _ := m.client.ClusterControllerClientV1.ClusterNodes("").Get(clusterNodeName, metav1.GetOptions{})
+	//FIXME - add not found error validation once fixed on norman side
+	// if err != nil && !apierrors.IsNotFound(err) {
+	// 	return nil, fmt.Errorf("Failed to get cluster node by name [%s] %v", clusterNodeName, err)
+	// }
 
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("Failed to get cluster node by name [%s] %v", clusterNodeName, err)
+	if existing.Name == "" {
+		return nil, nil
 	}
+
 	return existing, nil
 }
 
@@ -90,20 +93,25 @@ func (m *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	} else {
 		logrus.Infof("Updating cluster node [%s]", clusterNode.Name)
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
+		clusterNode.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
 		_, err := m.client.ClusterControllerClientV1.ClusterNodes("").Update(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to update cluster node [%s] %v", clusterNode.Name, err)
 		}
+		logrus.Infof("Updated cluster node [%s]", clusterNode.Name)
 	}
 	return nil
 }
 
 func (m *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterNode {
+	if node == nil {
+		return nil
+	}
 	clusterNode := &clusterv1.ClusterNode{
 		Node: *node,
 	}
-	clusterNode.APIVersion = ""
-	clusterNode.Kind = ""
+	clusterNode.APIVersion = "cluster.cattle.io/v1"
+	clusterNode.Kind = "ClusterNode"
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
 		Name:        fmt.Sprintf("%s-%s", m.clusterName, node.Name),
 		Labels:      node.Labels,
