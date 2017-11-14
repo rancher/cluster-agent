@@ -16,7 +16,7 @@ import (
 var (
 	NodeGroupVersionKind = schema.GroupVersionKind{
 		Version: "v1",
-		Group:   "core",
+		Group:   "",
 		Kind:    "Node",
 	}
 	NodeResource = metav1.APIResource{

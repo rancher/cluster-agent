@@ -24,16 +24,20 @@ func main() {
 			Name:  "cluster-config",
 			Usage: "Kube config for accessing cluster",
 		},
+		cli.StringFlag{
+			Name:  "cluster-name",
+			Usage: "name of the cluster",
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runControllers(c.String("cluster-manager-config"), c.String("cluster-config"))
+		runControllers(c.String("cluster-manager-config"), c.String("cluster-config"), c.String("cluster-name"))
 		return nil
 	}
 	app.Run(os.Args)
 }
 
-func runControllers(clusterManagerCfg string, clusterCfg string) {
+func runControllers(clusterManagerCfg string, clusterCfg string, clusterName string) {
 	logrus.Info("Staring cluster manager")
 	ctx, cancel := context.WithCancel(context.Background())
 	wg, ctx := errgroup.WithContext(ctx)
@@ -45,7 +49,7 @@ func runControllers(clusterManagerCfg string, clusterCfg string) {
 	for name := range controller.GetControllers() {
 		logrus.Infof("Starting [%s] handler", name)
 		c := controller.GetControllers()[name]
-		wg.Go(func() error { return c.Run(client, ctx) })
+		wg.Go(func() error { return c.Run(clusterName, client, ctx) })
 
 	}
 

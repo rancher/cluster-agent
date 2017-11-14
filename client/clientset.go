@@ -22,8 +22,8 @@ type Client struct {
 type V1 struct {
 	// ClusterClientV1 is the client to connect to Kubernetes cluster API
 	ClusterClientV1 *Client
-	// ClusterManagerClientV1 is the client for connecting to a cluster manager
-	ClusterManagerClientV1 clusterv1.Interface
+	// ClusterControllerClientV1 is the client for connecting to a cluster controller
+	ClusterControllerClientV1 clusterv1.Interface
 }
 
 func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*V1, error) {
