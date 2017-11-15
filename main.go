@@ -49,7 +49,7 @@ func runControllers(clusterManagerCfg string, clusterCfg string, clusterName str
 	for name := range controller.GetControllers() {
 		logrus.Infof("Starting [%s] handler", name)
 		c := controller.GetControllers()[name]
-		wg.Go(func() error { return c.Run(clusterName, client, ctx) })
+		wg.Go(func() error { return c.Run(ctx, clusterName, client) })
 
 	}
 

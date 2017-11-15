@@ -14,7 +14,7 @@ const (
 
 type Controller interface {
 	GetName() string
-	Run(clusterName string, client *client.ClientSet, ctx context.Context) error
+	Run(ctx context.Context, clusterName string, client *client.Clients) error
 }
 
 var (
