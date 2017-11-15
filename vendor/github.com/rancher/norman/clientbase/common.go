@@ -11,8 +11,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	"github.com/rancher/norman/types"
@@ -51,7 +49,6 @@ func (e *APIError) Error() string {
 func IsNotFound(err error) bool {
 	apiError, ok := err.(*APIError)
 	if !ok {
-		logrus.Info("Fail to parse")
 		return false
 	}
 
