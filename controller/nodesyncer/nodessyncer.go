@@ -14,7 +14,7 @@ import (
 )
 
 type NodeSyncer struct {
-	client      *client.ClientSet
+	client      *client.Clients
 	controller  client.NodeController
 	clusterName string
 }
@@ -28,7 +28,7 @@ func (n *NodeSyncer) GetName() string {
 	return "nodeSyncer"
 }
 
-func (n *NodeSyncer) Run(clusterName string, client *client.ClientSet, ctx context.Context) error {
+func (n *NodeSyncer) Run(ctx context.Context, clusterName string, client *client.Clients) error {
 	n.clusterName = clusterName
 	n.client = client
 	n.controller = client.ClusterClientV1.Nodes("").Controller()
@@ -44,8 +44,8 @@ func (n *NodeSyncer) sync(key string, node *v1.Node) error {
 	return n.createOrUpdateClusterNode(node)
 }
 
-func (m *NodeSyncer) deleteClusterNode(nodeName string) error {
-	clusterNode, err := m.getClusterNode(nodeName)
+func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
+	clusterNode, err := n.getClusterNode(nodeName)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (m *NodeSyncer) deleteClusterNode(nodeName string) error {
 		logrus.Infof("ClusterNode [%s] is already deleted")
 		return nil
 	}
-	err = m.client.ClusterControllerClientV1.ClusterNodes("").Delete(clusterNode.ObjectMeta.Name, nil)
+	err = n.client.ClusterControllerClientV1.ClusterNodes("").Delete(clusterNode.ObjectMeta.Name, nil)
 	if err != nil {
 		return fmt.Errorf("Failed to delete cluster node [%s] %v", clusterNode.Name, err)
 	}
@@ -63,9 +63,9 @@ func (m *NodeSyncer) deleteClusterNode(nodeName string) error {
 	return nil
 }
 
-func (m *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
-	clusterNodeName := fmt.Sprintf("%s-%s", m.clusterName, nodeName)
-	existing, _ := m.client.ClusterControllerClientV1.ClusterNodes("").Get(clusterNodeName, metav1.GetOptions{})
+func (n *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
+	clusterNodeName := fmt.Sprintf("%s-%s", n.clusterName, nodeName)
+	existing, _ := n.client.ClusterControllerClientV1.ClusterNodes("").Get(clusterNodeName, metav1.GetOptions{})
 	//FIXME - add not found error validation once fixed on norman side
 	// if err != nil && !apierrors.IsNotFound(err) {
 	// 	return nil, fmt.Errorf("Failed to get cluster node by name [%s] %v", clusterNodeName, err)
@@ -78,15 +78,15 @@ func (m *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, er
 	return existing, nil
 }
 
-func (m *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
-	existing, err := m.getClusterNode(node.Name)
+func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
+	existing, err := n.getClusterNode(node.Name)
 	if err != nil {
 		return err
 	}
-	clusterNode := m.convertNodeToClusterNode(node)
+	clusterNode := n.convertNodeToClusterNode(node)
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", clusterNode.Name)
-		_, err := m.client.ClusterControllerClientV1.ClusterNodes("").Create(clusterNode)
+		_, err := n.client.ClusterControllerClientV1.ClusterNodes("").Create(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to create cluster node [%s] %v", clusterNode.Name, err)
 		}
@@ -94,7 +94,7 @@ func (m *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		logrus.Infof("Updating cluster node [%s]", clusterNode.Name)
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
 		clusterNode.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
-		_, err := m.client.ClusterControllerClientV1.ClusterNodes("").Update(clusterNode)
+		_, err := n.client.ClusterControllerClientV1.ClusterNodes("").Update(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to update cluster node [%s] %v", clusterNode.Name, err)
 		}
@@ -103,7 +103,7 @@ func (m *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	return nil
 }
 
-func (m *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterNode {
+func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterNode {
 	if node == nil {
 		return nil
 	}
@@ -113,7 +113,7 @@ func (m *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterN
 	clusterNode.APIVersion = "cluster.cattle.io/v1"
 	clusterNode.Kind = "ClusterNode"
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
-		Name:        fmt.Sprintf("%s-%s", m.clusterName, node.Name),
+		Name:        fmt.Sprintf("%s-%s", n.clusterName, node.Name),
 		Labels:      node.Labels,
 		Annotations: node.Annotations,
 	}
