@@ -28,16 +28,25 @@ func main() {
 			Name:  "cluster-name",
 			Usage: "name of the cluster",
 		},
+		cli.StringSliceFlag{
+			Name:  "controller",
+			Usage: "name of controllers to run. Leave blank for all controllers",
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runControllers(c.String("cluster-manager-config"), c.String("cluster-config"), c.String("cluster-name"))
+		controllers := map[string]bool{}
+		for _, c := range c.StringSlice("controller") {
+			controllers[c] = true
+		}
+
+		runControllers(c.String("cluster-manager-config"), c.String("cluster-config"), c.String("cluster-name"), controllers)
 		return nil
 	}
 	app.Run(os.Args)
 }
 
-func runControllers(clusterManagerCfg string, clusterCfg string, clusterName string) {
+func runControllers(clusterManagerCfg string, clusterCfg string, clusterName string, controllers map[string]bool) {
 	logrus.Info("Staring cluster manager")
 	ctx, cancel := context.WithCancel(context.Background())
 	wg, ctx := errgroup.WithContext(ctx)
@@ -47,10 +56,11 @@ func runControllers(clusterManagerCfg string, clusterCfg string, clusterName str
 		logrus.Fatalf("Failed to build configs %v", err)
 	}
 	for name := range controller.GetControllers() {
-		logrus.Infof("Starting [%s] handler", name)
-		c := controller.GetControllers()[name]
-		wg.Go(func() error { return c.Run(ctx, clusterName, client) })
-
+		if len(controllers) == 0 || controllers[name] {
+			logrus.Infof("Starting [%s] handler", name)
+			c := controller.GetControllers()[name]
+			wg.Go(func() error { return c.Run(ctx, clusterName, client) })
+		}
 	}
 
 	term := make(chan os.Signal)
