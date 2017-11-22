@@ -14,9 +14,9 @@ import (
 
 type Client struct {
 	sync.Mutex
-	restClient rest.Interface
-
-	nodeControllers map[string]NodeController
+	restClient                 rest.Interface
+	componentstatusControllers map[string]ComponentStatusController
+	nodeControllers            map[string]NodeController
 }
 
 type Clients struct {
@@ -45,14 +45,15 @@ func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*Clients, erro
 		configConfig := dynamic.ContentConfig()
 		kubeConfig.NegotiatedSerializer = configConfig.NegotiatedSerializer
 	}
+
 	rest, err := rest.UnversionedRESTClientFor(kubeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to build cluster client: %v", err)
 	}
-
 	kubernetesClient := &Client{
-		restClient:      rest,
-		nodeControllers: map[string]NodeController{},
+		restClient:                 rest,
+		nodeControllers:            map[string]NodeController{},
+		componentstatusControllers: map[string]ComponentStatusController{},
 	}
 
 	// build rancher config
@@ -72,6 +73,15 @@ func NewClientSetV1(clusterManagerCfg string, clusterCfg string) (*Clients, erro
 func (c *Client) Nodes(namespace string) NodeInterface {
 	objectClient := clientbase.NewObjectClient(namespace, c.restClient, &NodeResource, NodeGroupVersionKind, nodeFactory{})
 	return &nodeClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+func (c *Client) ComponentStatuses(namespace string) ComponentStatusInterface {
+	objectClient := clientbase.NewObjectClient(namespace, c.restClient, &CSResource, CSGroupVersionKind, componentstatusFactory{})
+	return &componentstatusClient{
 		ns:           namespace,
 		client:       c,
 		objectClient: objectClient,
