@@ -12,6 +12,7 @@ import (
 
 type NodeSyncer struct {
 	ClusterNodes clusterv1.ClusterNodeInterface
+	Clusters     clusterv1.ClusterInterface
 	clusterName  string
 }
 
@@ -19,6 +20,7 @@ func Register(workload *config.WorkloadContext) {
 	n := &NodeSyncer{
 		clusterName:  workload.ClusterName,
 		ClusterNodes: workload.Cluster.Cluster.ClusterNodes(""),
+		Clusters:     workload.Cluster.Cluster.Clusters(""),
 	}
 
 	workload.Core.Nodes("").Controller().AddHandler(n.sync)
@@ -71,12 +73,21 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		return err
 	}
 	clusterNode := n.convertNodeToClusterNode(node)
+	cluster, err := n.Clusters.Get(clusterNode.ClusterName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("Failed to get cluster [%s] %v", clusterNode.ClusterName, err)
+	}
+	if cluster.ObjectMeta.DeletionTimestamp != nil {
+		return fmt.Errorf("Cluster [%s] in removing state", cluster.Name)
+	}
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", clusterNode.Name)
+		clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, metav1.OwnerReference{Name: n.clusterName})
 		_, err := n.ClusterNodes.Create(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to create cluster node [%s] %v", clusterNode.Name, err)
 		}
+		logrus.Infof("Created cluster node [%s]", clusterNode.Name)
 	} else {
 		logrus.Infof("Updating cluster node [%s]", clusterNode.Name)
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
