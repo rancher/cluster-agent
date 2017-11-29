@@ -1,16 +1,14 @@
 package healthsyncer
 
 import (
-	"context"
 	"fmt"
 	"time"
 
-	client "github.com/rancher/cluster-agent/client"
-	"github.com/rancher/cluster-agent/controller"
 	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
+	corev1 "github.com/rancher/types/apis/core/v1"
+	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -23,28 +21,23 @@ const (
 )
 
 type HealthSyncer struct {
-	client      *client.Clients
-	clusterName string
+	clusterName       string
+	Clusters          clusterv1.ClusterInterface
+	ComponentStatuses corev1.ComponentStatusInterface
 }
 
-func init() {
-	h := &HealthSyncer{}
-	controller.RegisterController(h.GetName(), h)
-}
+func Register(workload *config.WorkloadContext) {
+	h := &HealthSyncer{
+		clusterName:       workload.ClusterName,
+		Clusters:          workload.Cluster.Cluster.Clusters(""),
+		ComponentStatuses: workload.Core.ComponentStatuses(""),
+	}
 
-func (h *HealthSyncer) GetName() string {
-	return "HealthSyncer"
-}
-
-func (h *HealthSyncer) Run(ctx context.Context, clusterName string, client *client.Clients) error {
-	h.clusterName = clusterName
-	h.client = client
 	go h.syncHealth(syncInterval)
-	return nil
 }
 
 func (h *HealthSyncer) syncHealth(syncHealth time.Duration) {
-	for _ = range time.Tick(syncHealth) {
+	for range time.Tick(syncHealth) {
 		err := h.updateClusterHealth()
 		if err != nil {
 			logrus.Info(err)
@@ -64,7 +57,7 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	if !isProvisioned(cluster) {
 		return fmt.Errorf("Skip updating cluster health - cluster [%s] not provisioned yet", h.clusterName)
 	}
-	cses, err := h.client.ClusterClientV1.ComponentStatuses("").List(metav1.ListOptions{})
+	cses, err := h.ComponentStatuses.List(metav1.ListOptions{})
 	if err != nil {
 		logrus.Debugf("Error getting componentstatuses for server health %v", err)
 		updateConditionStatus(cluster, ClusterConditionReady, ClusterConditionStatusUnHealthy)
@@ -74,7 +67,7 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	logrus.Infof("Cluster [%s] Condition Ready", h.clusterName)
 
 	h.updateClusterStatus(cluster, cses.Items)
-	_, err = h.client.ClusterControllerClientV1.Clusters("").Update(cluster)
+	_, err = h.Clusters.Update(cluster)
 	if err != nil {
 		return fmt.Errorf("Failed to update cluster [%s] %v", cluster.Name, err)
 	}
@@ -90,7 +83,7 @@ func (h *HealthSyncer) updateClusterStatus(cluster *clusterv1.Cluster, cses []v1
 }
 
 func (h *HealthSyncer) getCluster() (*clusterv1.Cluster, error) {
-	return h.client.ClusterControllerClientV1.Clusters("").Get(h.clusterName, metav1.GetOptions{})
+	return h.Clusters.Get(h.clusterName, metav1.GetOptions{})
 }
 
 func convertToClusterComponentStatus(cs *v1.ComponentStatus) *clusterv1.ClusterComponentStatus {
@@ -108,7 +101,7 @@ func isProvisioned(cluster *clusterv1.Cluster) bool {
 	return isProvisioned.Status == "True"
 }
 
-func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType, status corev1.ConditionStatus) {
+func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType, status v1.ConditionStatus) {
 	condition := getConditionByType(cluster, conditionType)
 	currTime := time.Now().UTC().String()
 	if condition != nil {
