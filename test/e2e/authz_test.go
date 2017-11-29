@@ -1,14 +1,13 @@
 package e2e
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
 
-	mgrclient "github.com/rancher/cluster-agent/client"
 	"github.com/rancher/cluster-agent/controller/authz"
 	authzv1 "github.com/rancher/types/apis/authorization.cattle.io/v1"
+	"github.com/rancher/types/config"
 	"gopkg.in/check.v1"
 	corev1 "k8s.io/api/core/v1"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
@@ -29,7 +28,7 @@ func Test(t *testing.T) { check.TestingT(t) }
 type AuthzSuite struct {
 	extClient     *extclient.Clientset
 	clusterClient *clientset.Clientset
-	mgrClient     *mgrclient.Clients
+	workloadCtx   *config.WorkloadContext
 }
 
 var _ = check.Suite(&AuthzSuite{})
@@ -41,7 +40,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// create a PodSecurityPolicyTemplate to be referenced in a PolicyRule
 	pspName := "podsecuritypolicy-1"
 	s.clusterClient.ExtensionsV1beta1().PodSecurityPolicies().Delete(pspName, &metav1.DeleteOptions{})
-	pspTemplate, err := s.mgrClient.AuthorizationClientV1.PodSecurityPolicyTemplates("").Create(&authzv1.PodSecurityPolicyTemplate{
+	pspTemplate, err := s.workloadCtx.Cluster.Authorization.PodSecurityPolicyTemplates("").Create(&authzv1.PodSecurityPolicyTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "PodSecurityPolicyTemplates",
 			APIVersion: "authorization.cattle.io/v1",
@@ -92,7 +91,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		Kind: "User",
 		Name: "user1",
 	}
-	binding, err := s.mgrClient.AuthorizationClientV1.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
+	binding, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplateBinding",
 			APIVersion: "authorization.cattle.io/v1",
@@ -163,7 +162,7 @@ Loop3:
 }
 
 func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, c *check.C) (*authzv1.ProjectRoleTemplate, error) {
-	rt, err := s.mgrClient.AuthorizationClientV1.ProjectRoleTemplates("").Create(&authzv1.ProjectRoleTemplate{
+	rt, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplates("").Create(&authzv1.ProjectRoleTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplate",
 			APIVersion: "authorization.cattle.io/v1",
@@ -171,8 +170,8 @@ func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.Polic
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Rules:                rules,
-		ProjectRoleTemplates: prts,
+		Rules: rules,
+		ProjectRoleTemplateNames: prts,
 	})
 	c.Assert(err, check.IsNil)
 	c.Assert(rt.Name, check.Equals, name)
@@ -268,17 +267,16 @@ func (s *AuthzSuite) setupNS(name, projectName string, c *check.C) *corev1.Names
 }
 
 func (s *AuthzSuite) SetUpSuite(c *check.C) {
-	clusterClient, extClient, mgrClient := clientForSetup(c)
+	clusterClient, extClient, workload := clientForSetup(c)
 	s.extClient = extClient
 	s.clusterClient = clusterClient
-	s.mgrClient = mgrClient
-
+	s.workloadCtx = workload
 	s.setupCRDs(c)
 
-	r := authz.ProjectRoleTemplateBindingsHandler{}
-	ctx := context.Background()
+	authz.Register(workload)
+
 	go func() {
-		err := r.Run(ctx, "", s.mgrClient)
+		err := workload.StartAndWait()
 		c.Assert(err, check.IsNil)
 	}()
 }
@@ -378,25 +376,25 @@ func newCRD(fullName, name, plural, group, kind, version string, scope apiextens
 	}
 }
 
-func clientForSetup(c *check.C) (*clientset.Clientset, *extclient.Clientset, *mgrclient.Clients) {
+func clientForSetup(c *check.C) (*clientset.Clientset, *extclient.Clientset, *config.WorkloadContext) {
 	mgrConfig := os.Getenv("TEST_CLUSTER_MGR_CONFIG")
-	clusterMgrConfig, err := clientcmd.BuildConfigFromFlags("", mgrConfig)
+	clusterKubeConfig, err := clientcmd.BuildConfigFromFlags("", mgrConfig)
 	c.Assert(err, check.IsNil)
 
-	extensionClient, err := extclient.NewForConfig(clusterMgrConfig)
+	extensionClient, err := extclient.NewForConfig(clusterKubeConfig)
 	c.Assert(err, check.IsNil)
 
-	config := os.Getenv("TEST_CLUSTER_CONFIG")
-	clusterConfig, err := clientcmd.BuildConfigFromFlags("", config)
+	conf := os.Getenv("TEST_CLUSTER_CONFIG")
+	workloadKubeConfig, err := clientcmd.BuildConfigFromFlags("", conf)
 	c.Assert(err, check.IsNil)
 
-	clusterClient, err := clientset.NewForConfig(clusterConfig)
+	clusterClient, err := clientset.NewForConfig(workloadKubeConfig)
 	c.Assert(err, check.IsNil)
 
-	mgrClient, err := mgrclient.NewClientSetV1(mgrConfig, config)
+	workload, err := config.NewWorkloadContext(*clusterKubeConfig, *workloadKubeConfig, "")
 	c.Assert(err, check.IsNil)
 
-	return clusterClient, extensionClient, mgrClient
+	return clusterClient, extensionClient, workload
 }
 
 /*
