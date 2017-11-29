@@ -13,11 +13,7 @@ import (
 )
 
 const (
-	syncInterval                    = 15 * time.Second
-	ClusterConditionProvisioned     = "Provisioned"
-	ClusterConditionReady           = "Ready"
-	ClusterConditionStatusHealthy   = "True"
-	ClusterConditionStatusUnHealthy = "False"
+	syncInterval = 15 * time.Second
 )
 
 type HealthSyncer struct {
@@ -60,10 +56,10 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	cses, err := h.ComponentStatuses.List(metav1.ListOptions{})
 	if err != nil {
 		logrus.Debugf("Error getting componentstatuses for server health %v", err)
-		updateConditionStatus(cluster, ClusterConditionReady, ClusterConditionStatusUnHealthy)
+		updateConditionStatus(cluster, clusterv1.ClusterConditionReady, v1.ConditionFalse)
 		return nil
 	}
-	updateConditionStatus(cluster, ClusterConditionReady, ClusterConditionStatusHealthy)
+	updateConditionStatus(cluster, clusterv1.ClusterConditionReady, v1.ConditionTrue)
 	logrus.Infof("Cluster [%s] Condition Ready", h.clusterName)
 
 	h.updateClusterStatus(cluster, cses.Items)
@@ -78,7 +74,7 @@ func (h *HealthSyncer) updateClusterHealth() error {
 func (h *HealthSyncer) updateClusterStatus(cluster *clusterv1.Cluster, cses []v1.ComponentStatus) {
 	for _, cs := range cses {
 		clusterCS := convertToClusterComponentStatus(&cs)
-		cluster.Status.ComponentStatuses = append(cluster.Status.ComponentStatuses, *clusterCS)
+		cluster.Status.ComponentStatuses = []clusterv1.ClusterComponentStatus{*clusterCS}
 	}
 }
 
@@ -94,7 +90,7 @@ func convertToClusterComponentStatus(cs *v1.ComponentStatus) *clusterv1.ClusterC
 }
 
 func isProvisioned(cluster *clusterv1.Cluster) bool {
-	isProvisioned := getConditionByType(cluster, ClusterConditionProvisioned)
+	isProvisioned := getConditionByType(cluster, clusterv1.ClusterConditionProvisioned)
 	if isProvisioned == nil {
 		return false
 	}
