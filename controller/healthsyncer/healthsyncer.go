@@ -72,9 +72,10 @@ func (h *HealthSyncer) updateClusterHealth() error {
 }
 
 func (h *HealthSyncer) updateClusterStatus(cluster *clusterv1.Cluster, cses []v1.ComponentStatus) {
+	cluster.Status.ComponentStatuses = []clusterv1.ClusterComponentStatus{}
 	for _, cs := range cses {
 		clusterCS := convertToClusterComponentStatus(&cs)
-		cluster.Status.ComponentStatuses = []clusterv1.ClusterComponentStatus{*clusterCS}
+		cluster.Status.ComponentStatuses = append(cluster.Status.ComponentStatuses, *clusterCS)
 	}
 }
 
