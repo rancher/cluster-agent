@@ -53,7 +53,7 @@ func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
 }
 
 func (n *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
-	clusterNodeName := fmt.Sprintf("%s-%s", n.clusterName, nodeName)
+	clusterNodeName := fmt.Sprintf("%s:%s", n.clusterName, nodeName)
 	existing, _ := n.ClusterNodes.Get(clusterNodeName, metav1.GetOptions{})
 	//FIXME - add not found error validation once fixed on norman side
 	// if err != nil && !apierrors.IsNotFound(err) {
@@ -117,7 +117,7 @@ func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterN
 	clusterNode.APIVersion = "cluster.cattle.io/v1"
 	clusterNode.Kind = "ClusterNode"
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
-		Name:        fmt.Sprintf("%s-%s", n.clusterName, node.Name),
+		Name:        fmt.Sprintf("%s:%s", n.clusterName, node.Name),
 		Labels:      node.Labels,
 		Annotations: node.Annotations,
 	}
