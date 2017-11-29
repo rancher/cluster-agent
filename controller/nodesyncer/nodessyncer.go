@@ -73,16 +73,22 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		return err
 	}
 	clusterNode := n.convertNodeToClusterNode(node)
-	cluster, err := n.Clusters.Get(clusterNode.ClusterName, metav1.GetOptions{})
+	cluster, err := n.Clusters.Get(n.clusterName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("Failed to get cluster [%s] %v", clusterNode.ClusterName, err)
+		return fmt.Errorf("Failed to get cluster [%s] %v", n.clusterName, err)
 	}
 	if cluster.ObjectMeta.DeletionTimestamp != nil {
 		return fmt.Errorf("Cluster [%s] in removing state", cluster.Name)
 	}
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", clusterNode.Name)
-		clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, metav1.OwnerReference{Name: n.clusterName})
+		ref := metav1.OwnerReference{
+			Name:       n.clusterName,
+			UID:        cluster.UID,
+			APIVersion: cluster.APIVersion,
+			Kind:       cluster.Kind,
+		}
+		clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, ref)
 		_, err := n.ClusterNodes.Create(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to create cluster node [%s] %v", clusterNode.Name, err)
