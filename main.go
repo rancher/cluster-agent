@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"os"
-	"os/signal"
-	"syscall"
 
-	client "github.com/rancher/cluster-agent/client"
 	controller "github.com/rancher/cluster-agent/controller"
+	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
-	"golang.org/x/sync/errgroup"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func main() {
@@ -31,42 +28,36 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		runControllers(c.String("cluster-manager-config"), c.String("cluster-config"), c.String("cluster-name"))
-		return nil
+		return runControllers(
+			c.String("cluster-manager-config"),
+			c.String("cluster-config"),
+			c.String("cluster-name"),
+		)
 	}
+
+	app.ExitErrHandler = func(c *cli.Context, err error) {
+		logrus.Fatal(err)
+	}
+
 	app.Run(os.Args)
 }
 
-func runControllers(clusterManagerCfg string, clusterCfg string, clusterName string) {
-	logrus.Info("Staring cluster manager")
-	ctx, cancel := context.WithCancel(context.Background())
-	wg, ctx := errgroup.WithContext(ctx)
-
-	client, err := client.NewClientSetV1(clusterManagerCfg, clusterCfg)
+func runControllers(clusterManagerCfg string, workloadCfg string, clusterName string) error {
+	clusterKubeConfig, err := clientcmd.BuildConfigFromFlags("", clusterManagerCfg)
 	if err != nil {
-		logrus.Fatalf("Failed to build configs %v", err)
-	}
-	for name := range controller.GetControllers() {
-		logrus.Infof("Starting [%s] handler", name)
-		c := controller.GetControllers()[name]
-		wg.Go(func() error { return c.Run(ctx, clusterName, client) })
-
+		return err
 	}
 
-	term := make(chan os.Signal)
-	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
-
-	select {
-	case <-term:
-		logrus.Infof("Received SIGTERM, shutting down")
-	case <-ctx.Done():
+	workloadKubeConfig, err := clientcmd.BuildConfigFromFlags("", workloadCfg)
+	if err != nil {
+		return err
 	}
 
-	cancel()
-
-	if err := wg.Wait(); err != nil {
-		logrus.Errorf("Unhandled error received, shutting down: [%v]", err)
-		os.Exit(1)
+	workload, err := config.NewWorkloadContext(*clusterKubeConfig, *workloadKubeConfig, clusterName)
+	if err != nil {
+		return err
 	}
-	os.Exit(0)
+
+	controller.Register(workload)
+	return workload.StartAndWait()
 }
