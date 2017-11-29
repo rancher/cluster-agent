@@ -38,7 +38,7 @@ func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
 	if err != nil {
 		return err
 	}
-	logrus.Infof("Deleting cluster node [%s]", clusterNode.Name)
+	logrus.Infof("Deleting cluster node [%s]", nodeName)
 
 	if clusterNode == nil {
 		logrus.Infof("ClusterNode [%s] is already deleted")
@@ -46,25 +46,24 @@ func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
 	}
 	err = n.ClusterNodes.Delete(clusterNode.ObjectMeta.Name, nil)
 	if err != nil {
-		return fmt.Errorf("Failed to delete cluster node [%s] %v", clusterNode.Name, err)
+		return fmt.Errorf("Failed to delete cluster node [%s] %v", nodeName, err)
 	}
-	logrus.Infof("Deleted cluster node [%s]", clusterNode.Name)
+	logrus.Infof("Deleted cluster node [%s]", nodeName)
 	return nil
 }
 
 func (n *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
-	clusterNodeName := fmt.Sprintf("%s:%s", n.clusterName, nodeName)
-	existing, _ := n.ClusterNodes.Get(clusterNodeName, metav1.GetOptions{})
-	//FIXME - add not found error validation once fixed on norman side
-	// if err != nil && !apierrors.IsNotFound(err) {
-	// 	return nil, fmt.Errorf("Failed to get cluster node by name [%s] %v", clusterNodeName, err)
-	// }
-
-	if existing.Name == "" {
-		return nil, nil
+	nodes, err := n.ClusterNodes.List(metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes.Items {
+		if node.NodeName == nodeName {
+			return &node, nil
+		}
 	}
 
-	return existing, nil
+	return nil, nil
 }
 
 func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
@@ -81,7 +80,7 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		return fmt.Errorf("Cluster [%s] in removing state", cluster.Name)
 	}
 	if existing == nil {
-		logrus.Infof("Creating cluster node [%s]", clusterNode.Name)
+		logrus.Infof("Creating cluster node [%s]", node.Name)
 		ref := metav1.OwnerReference{
 			Name:       n.clusterName,
 			UID:        cluster.UID,
@@ -91,18 +90,19 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, ref)
 		_, err := n.ClusterNodes.Create(clusterNode)
 		if err != nil {
-			return fmt.Errorf("Failed to create cluster node [%s] %v", clusterNode.Name, err)
+			return fmt.Errorf("Failed to create cluster node [%s] %v", node.Name, err)
 		}
-		logrus.Infof("Created cluster node [%s]", clusterNode.Name)
+		logrus.Infof("Created cluster node [%s]", node.Name)
 	} else {
-		logrus.Infof("Updating cluster node [%s]", clusterNode.Name)
+		logrus.Infof("Updating cluster node [%s]", node.Name)
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
 		clusterNode.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
+		clusterNode.Name = existing.Name
 		_, err := n.ClusterNodes.Update(clusterNode)
 		if err != nil {
-			return fmt.Errorf("Failed to update cluster node [%s] %v", clusterNode.Name, err)
+			return fmt.Errorf("Failed to update cluster node [%s] %v", node.Name, err)
 		}
-		logrus.Infof("Updated cluster node [%s]", clusterNode.Name)
+		logrus.Infof("Updated cluster node [%s]", node.Name)
 	}
 	return nil
 }
@@ -117,9 +117,11 @@ func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterN
 	clusterNode.APIVersion = "cluster.cattle.io/v1"
 	clusterNode.Kind = "ClusterNode"
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
-		Name:        fmt.Sprintf("%s:%s", n.clusterName, node.Name),
-		Labels:      node.Labels,
-		Annotations: node.Annotations,
+		GenerateName: "clusternode-",
+		Labels:       node.Labels,
+		Annotations:  node.Annotations,
 	}
+	clusterNode.ClusterName = n.clusterName
+	clusterNode.NodeName = node.Name
 	return clusterNode
 }
