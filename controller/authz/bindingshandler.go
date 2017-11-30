@@ -61,34 +61,44 @@ func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBindi
 	}
 
 	// Aggregate rules for all sub-roleTemplates
+	builtinRoles := map[string]bool{}
 	allRules := []rbacv1.PolicyRule{}
-	allRules = append(allRules, rt.Rules...)
-	for _, rtName := range rt.ProjectRoleTemplateNames {
-		subRT, err := r.ProjectRoleTemplates.Get(rtName, metav1.GetOptions{})
-		if err != nil {
-			return errors.Wrapf(err, "couldn't get ProjectRoleTemplate %s", rtName)
-		}
-		allRules = append(allRules, subRT.Rules...)
-	}
-
-	// Find any named PodSecurityPolicy resources
 	pspTemplates := map[string]*authzv1.PodSecurityPolicyTemplate{}
-	for _, rule := range allRules {
-		foundPSP := false
-		for _, resourceKind := range rule.Resources {
-			if strings.EqualFold(resourceKind, "podsecuritypolicies") {
-				foundPSP = true
-				break
+	if rt.Builtin {
+		builtinRoles[rt.Name] = true
+	} else {
+		allRules = append(allRules, rt.Rules...)
+		for _, rtName := range rt.ProjectRoleTemplateNames {
+			subRT, err := r.ProjectRoleTemplates.Get(rtName, metav1.GetOptions{})
+			if err != nil {
+				return errors.Wrapf(err, "couldn't get ProjectRoleTemplate %s", rtName)
+			}
+			if subRT.Builtin {
+				builtinRoles[subRT.Name] = true
+			} else {
+				allRules = append(allRules, subRT.Rules...)
+
 			}
 		}
-		if foundPSP {
-			for _, resName := range rule.ResourceNames {
-				pspTemplate, err := r.PodSecurityPolicyTemplates.Get(resName, metav1.GetOptions{})
-				if err != nil {
-					logrus.Warnf("Couldn't find PodSecurityPolicy %v. Skipping. Error: %v", resName, err)
-					continue
+
+		// Find any named PodSecurityPolicy resources
+		for _, rule := range allRules {
+			foundPSP := false
+			for _, resourceKind := range rule.Resources {
+				if strings.EqualFold(resourceKind, "podsecuritypolicies") {
+					foundPSP = true
+					break
 				}
-				pspTemplates[resName] = pspTemplate
+			}
+			if foundPSP {
+				for _, resName := range rule.ResourceNames {
+					pspTemplate, err := r.PodSecurityPolicyTemplates.Get(resName, metav1.GetOptions{})
+					if err != nil {
+						logrus.Warnf("Couldn't find PodSecurityPolicy %v. Skipping. Error: %v", resName, err)
+						continue
+					}
+					pspTemplates[resName] = pspTemplate
+				}
 			}
 		}
 	}
@@ -99,12 +109,21 @@ func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBindi
 			return errors.Wrapf(err, "couldn't ensure PodSecurityPolicies")
 		}
 
-		if err := r.ensureRole(ns.Name, rt, allRules, binding); err != nil {
-			return errors.Wrapf(err, "couldn't ensure role %v", rt.Name)
+		if _, ok := builtinRoles[rt.Name]; !ok {
+			if err := r.ensureRole(ns.Name, rt, allRules, binding); err != nil {
+				return errors.Wrapf(err, "couldn't ensure role %v", rt.Name)
+			}
+
+			if err := r.ensureBinding(ns.Name, rt.Name, binding); err != nil {
+				return errors.Wrapf(err, "couldn't ensure binding %v %v in %v", rt.Name, binding.Subject.Name, ns.Name)
+			}
 		}
 
-		if err := r.ensureBinding(ns.Name, rt, binding); err != nil {
-			return errors.Wrapf(err, "couldn't ensure role %v", rt.Name)
+		for builtin := range builtinRoles {
+			if err := r.ensureBinding(ns.Name, builtin, binding); err != nil {
+				return errors.Wrapf(err, "couldn't ensure binding %v %v in %v", builtin, binding.Subject.Name, ns.Name)
+			}
+
 		}
 	}
 
@@ -153,9 +172,9 @@ func (r *roleHandler) ensureRole(ns string, rt *authzv1.ProjectRoleTemplate, all
 	return err
 }
 
-func (r *roleHandler) ensureBinding(ns string, rt *authzv1.ProjectRoleTemplate, binding *authzv1.ProjectRoleTemplateBinding) error {
+func (r *roleHandler) ensureBinding(ns, roleName string, binding *authzv1.ProjectRoleTemplateBinding) error {
 	bindingCli := r.RBAC.RoleBindings(ns)
-	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", rt.Name, binding.Subject.Kind, binding.Subject.Name))
+	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, binding.Subject.Kind, binding.Subject.Name))
 	_, err := bindingCli.Get(bindingName, metav1.GetOptions{})
 	if err == nil {
 		return nil
@@ -168,7 +187,7 @@ func (r *roleHandler) ensureBinding(ns string, rt *authzv1.ProjectRoleTemplate, 
 		Subjects: []rbacv1.Subject{binding.Subject},
 		RoleRef: rbacv1.RoleRef{
 			Kind: "Role",
-			Name: rt.Name,
+			Name: roleName,
 		},
 	})
 
