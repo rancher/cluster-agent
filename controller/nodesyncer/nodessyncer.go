@@ -7,6 +7,7 @@ import (
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,7 +45,7 @@ func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
 		logrus.Infof("ClusterNode [%s] is already deleted")
 		return nil
 	}
-	err = n.ClusterNodes.Delete(clusterNode.ObjectMeta.Name, nil)
+	err = n.ClusterNodes.Delete(clusterNode.Name, nil)
 	if err != nil {
 		return fmt.Errorf("Failed to delete cluster node [%s] %v", nodeName, err)
 	}
@@ -73,12 +74,15 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	}
 	cluster, err := n.Clusters.Get(n.clusterName, metav1.GetOptions{})
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("Failed to get cluster [%s] %v", n.clusterName, err)
 	}
 	clusterNode := n.convertNodeToClusterNode(node, cluster)
 
-	if cluster.ObjectMeta.DeletionTimestamp != nil {
-		return fmt.Errorf("Cluster [%s] in removing state", n.clusterName)
+	if cluster.DeletionTimestamp != nil {
+		return nil
 	}
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", node.Name)
@@ -90,7 +94,7 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	} else {
 		logrus.Infof("Updating cluster node [%s]", node.Name)
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
-		clusterNode.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
+		clusterNode.ResourceVersion = existing.ResourceVersion
 		clusterNode.Name = existing.Name
 		_, err := n.ClusterNodes.Update(clusterNode)
 		if err != nil {
@@ -123,6 +127,6 @@ func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node, cluster *clusterv1.
 		APIVersion: cluster.APIVersion,
 		Kind:       cluster.Kind,
 	}
-	clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, ref)
+	clusterNode.OwnerReferences = append(clusterNode.OwnerReferences, ref)
 	return clusterNode
 }
