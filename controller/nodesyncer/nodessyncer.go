@@ -71,23 +71,17 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	if err != nil {
 		return err
 	}
-	clusterNode := n.convertNodeToClusterNode(node)
 	cluster, err := n.Clusters.Get(n.clusterName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("Failed to get cluster [%s] %v", n.clusterName, err)
 	}
+	clusterNode := n.convertNodeToClusterNode(node, cluster)
+
 	if cluster.ObjectMeta.DeletionTimestamp != nil {
-		return fmt.Errorf("Cluster [%s] in removing state", cluster.Name)
+		return fmt.Errorf("Cluster [%s] in removing state", n.clusterName)
 	}
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", node.Name)
-		ref := metav1.OwnerReference{
-			Name:       n.clusterName,
-			UID:        cluster.UID,
-			APIVersion: cluster.APIVersion,
-			Kind:       cluster.Kind,
-		}
-		clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, ref)
 		_, err := n.ClusterNodes.Create(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to create cluster node [%s] %v", node.Name, err)
@@ -107,7 +101,7 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	return nil
 }
 
-func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterNode {
+func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node, cluster *clusterv1.Cluster) *clusterv1.ClusterNode {
 	if node == nil {
 		return nil
 	}
@@ -116,12 +110,19 @@ func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node) *clusterv1.ClusterN
 	}
 	clusterNode.APIVersion = "cluster.cattle.io/v1"
 	clusterNode.Kind = "ClusterNode"
+	clusterNode.ClusterName = n.clusterName
+	clusterNode.NodeName = node.Name
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
 		GenerateName: "clusternode-",
 		Labels:       node.Labels,
 		Annotations:  node.Annotations,
 	}
-	clusterNode.ClusterName = n.clusterName
-	clusterNode.NodeName = node.Name
+	ref := metav1.OwnerReference{
+		Name:       n.clusterName,
+		UID:        cluster.UID,
+		APIVersion: cluster.APIVersion,
+		Kind:       cluster.Kind,
+	}
+	clusterNode.ObjectMeta.OwnerReferences = append(clusterNode.ObjectMeta.OwnerReferences, ref)
 	return clusterNode
 }
