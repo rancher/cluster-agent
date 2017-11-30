@@ -9,6 +9,7 @@ import (
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,9 +45,12 @@ func (h *HealthSyncer) syncHealth(syncHealth time.Duration) {
 func (h *HealthSyncer) updateClusterHealth() error {
 	cluster, err := h.getCluster()
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
-	if cluster == nil {
+	if cluster == nil || cluster.DeletionTimestamp != nil {
 		logrus.Info("Skip updating cluster health, cluster [%s] deleted", h.clusterName)
 		return nil
 	}
