@@ -49,7 +49,7 @@ func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBindi
 	}
 
 	// Get namespaces belonging to project
-	set := labels.Set(map[string]string{"project": binding.ProjectName})
+	set := labels.Set(map[string]string{"io.cattle.field.projectId": binding.ProjectName})
 	namespaces, err := r.Namespaces.List(metav1.ListOptions{
 		LabelSelector: set.AsSelector().String(),
 	})

@@ -253,10 +253,10 @@ func (s *AuthzSuite) setupNS(name, projectName string, c *check.C) *corev1.Names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				"project": projectName,
+				"io.cattle.field.projectId": projectName,
 			},
 			Annotations: map[string]string{
-				"project": projectName,
+				"io.cattle.field.projectId": projectName,
 			},
 		},
 	}
