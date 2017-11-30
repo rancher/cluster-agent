@@ -68,7 +68,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		[]rbacv1.PolicyRule{
 			{[]string{"get", "list", "watch"}, []string{""}, []string{"pods"}, []string{}, []string{}},
 			{[]string{"use"}, []string{"extensions"}, []string{"podsecuritypolicies"}, []string{pspName}, []string{}},
-		}, []string{}, c)
+		}, []string{}, false, c)
 
 	// create ProjectRoleTemplate that user will be bound to
 	rtName := "readonly"
@@ -76,7 +76,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		[]rbacv1.PolicyRule{
 			{[]string{"get", "list", "watch"}, []string{"apps", "extensions"}, []string{"deployments"}, []string{}, []string{}},
 		},
-		[]string{podRORoleTemplateName}, c)
+		[]string{podRORoleTemplateName}, false, c)
 
 	// create namespace and watchers for resources in that namespace
 	ns := s.setupNS("authz-test-ns1", projectName, c)
@@ -161,7 +161,72 @@ Loop3:
 	}
 }
 
-func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, c *check.C) (*authzv1.ProjectRoleTemplate, error) {
+func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
+	// create project
+	projectName := "test-project-2"
+
+	// create ProjectRoleTemplate that user will be bound to
+	rtName := "view"
+	_, err := s.createProjectRoleTemplate(rtName,
+		[]rbacv1.PolicyRule{}, []string{}, true, c)
+
+	// create namespace and watchers for resources in that namespace
+	ns := s.setupNS("authz-builtin-test-ns1", projectName, c)
+	roleWatcher, bindingWatcher, pspWatcher := s.watchers(ns.Name, c)
+	defer roleWatcher.Stop()
+	defer bindingWatcher.Stop()
+	defer pspWatcher.Stop()
+
+	roles, err := s.clusterClient.RbacV1().Roles(ns.Name).List(metav1.ListOptions{})
+	c.Assert(err, check.IsNil)
+	rolesPreCount := len(roles.Items)
+
+	// create ProjectRoleTemplateBinding
+	bindingName := "builtin-binding-1"
+	subject := rbacv1.Subject{
+		Kind: "User",
+		Name: "user1",
+	}
+	binding, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ProjectRoleTemplateBinding",
+			APIVersion: "authorization.cattle.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: bindingName,
+		},
+		Subject:                 subject,
+		ProjectName:             projectName,
+		ProjectRoleTemplateName: rtName,
+	})
+	c.Assert(err, check.IsNil)
+	c.Assert(binding.Name, check.Equals, bindingName)
+
+	// assert corresponding role and rolebinding is created in proper NS
+Loop:
+	for {
+		select {
+		case watchEvent := <-bindingWatcher.ResultChan():
+			if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
+				if binding, ok := watchEvent.Object.(*rbacv1.RoleBinding); ok {
+					c.Assert(binding.Subjects[0].Kind, check.Equals, subject.Kind)
+					c.Assert(binding.Subjects[0].Name, check.Equals, subject.Name)
+					c.Assert(binding.RoleRef.Name, check.Equals, rtName)
+					break Loop
+				}
+			}
+		case <-time.After(5 * time.Second):
+			c.Fatalf("Timeout waiting for binding to exist")
+		}
+	}
+
+	roles, err = s.clusterClient.RbacV1().Roles(ns.Name).List(metav1.ListOptions{})
+	c.Assert(err, check.IsNil)
+	rolesPostCount := len(roles.Items)
+	c.Assert(rolesPostCount, check.Equals, rolesPreCount)
+}
+
+func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, builtin bool, c *check.C) (*authzv1.ProjectRoleTemplate, error) {
 	rt, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplates("").Create(&authzv1.ProjectRoleTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplate",
@@ -172,6 +237,7 @@ func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.Polic
 		},
 		Rules: rules,
 		ProjectRoleTemplateNames: prts,
+		Builtin:                  builtin,
 	})
 	c.Assert(err, check.IsNil)
 	c.Assert(rt.Name, check.Equals, name)
@@ -253,10 +319,10 @@ func (s *AuthzSuite) setupNS(name, projectName string, c *check.C) *corev1.Names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				"project": projectName,
+				"io.cattle.field.projectId": projectName,
 			},
 			Annotations: map[string]string{
-				"project": projectName,
+				"io.cattle.field.projectId": projectName,
 			},
 		},
 	}
