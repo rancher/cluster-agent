@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rancher/cluster-agent/utils"
 	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
 	corev1 "github.com/rancher/types/apis/core/v1"
 	"github.com/rancher/types/config"
@@ -50,7 +51,7 @@ func (h *HealthSyncer) updateClusterHealth() error {
 		logrus.Info("Skip updating cluster health, cluster [%s] deleted", h.clusterName)
 		return nil
 	}
-	if !isProvisioned(cluster) {
+	if !utils.IsClusterProvisioned(cluster) {
 		return fmt.Errorf("Skip updating cluster health - cluster [%s] not provisioned yet", h.clusterName)
 	}
 	cses, err := h.ComponentStatuses.List(metav1.ListOptions{})
@@ -88,14 +89,6 @@ func convertToClusterComponentStatus(cs *v1.ComponentStatus) *clusterv1.ClusterC
 		Name:       cs.Name,
 		Conditions: cs.Conditions,
 	}
-}
-
-func isProvisioned(cluster *clusterv1.Cluster) bool {
-	isProvisioned := getConditionByType(cluster, clusterv1.ClusterConditionProvisioned)
-	if isProvisioned == nil {
-		return false
-	}
-	return isProvisioned.Status == "True"
 }
 
 func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType, status v1.ConditionStatus) {
