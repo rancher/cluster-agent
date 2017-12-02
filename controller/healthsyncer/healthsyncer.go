@@ -92,25 +92,31 @@ func convertToClusterComponentStatus(cs *v1.ComponentStatus) *clusterv1.ClusterC
 }
 
 func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType, status v1.ConditionStatus) {
-	condition := getConditionByType(cluster, conditionType)
-	currTime := time.Now().UTC().String()
+	pos, condition := getConditionByType(cluster, conditionType)
+	currTime := time.Now().UTC().Format(time.RFC3339)
+
 	if condition != nil {
-		condition.Status = status
+		if condition.Status != status {
+			condition.Status = status
+			condition.LastTransitionTime = currTime
+		}
 		condition.LastUpdateTime = currTime
+		cluster.Status.Conditions[pos] = *condition
 	} else {
 		ncondition := &clusterv1.ClusterCondition{
-			Status:         status,
-			LastUpdateTime: currTime,
+			Status:             status,
+			LastUpdateTime:     currTime,
+			LastTransitionTime: currTime,
 		}
 		cluster.Status.Conditions = append(cluster.Status.Conditions, *ncondition)
 	}
 }
 
-func getConditionByType(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType) *clusterv1.ClusterCondition {
-	for _, condition := range cluster.Status.Conditions {
+func getConditionByType(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType) (int, *clusterv1.ClusterCondition) {
+	for index, condition := range cluster.Status.Conditions {
 		if condition.Type == conditionType {
-			return &condition
+			return index, &condition
 		}
 	}
-	return nil
+	return -1, nil
 }
