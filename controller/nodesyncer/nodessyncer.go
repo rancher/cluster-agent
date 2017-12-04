@@ -7,6 +7,7 @@ import (
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -82,6 +83,8 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	}
 	if existing == nil {
 		logrus.Infof("Creating cluster node [%s]", node.Name)
+		clusterNode.Status.Requested = make(map[v1.ResourceName]resource.Quantity)
+		clusterNode.Status.Limits = make(map[v1.ResourceName]resource.Quantity)
 		_, err := n.ClusterNodes.Create(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to create cluster node [%s] %v", node.Name, err)
@@ -92,6 +95,8 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 		//TODO - consider doing merge2ways once more than one controller modifies the clusterNode
 		clusterNode.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
 		clusterNode.Name = existing.Name
+		clusterNode.Status.Requested = existing.Status.Requested
+		clusterNode.Status.Limits = existing.Status.Limits
 		_, err := n.ClusterNodes.Update(clusterNode)
 		if err != nil {
 			return fmt.Errorf("Failed to update cluster node [%s] %v", node.Name, err)
@@ -106,7 +111,10 @@ func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node, cluster *clusterv1.
 		return nil
 	}
 	clusterNode := &clusterv1.ClusterNode{
-		Node: *node,
+		NodeSpec: node.Spec,
+		Status: clusterv1.ClusterNodeStatus{
+			NodeStatus: node.Status,
+		},
 	}
 	clusterNode.APIVersion = "cluster.cattle.io/v1"
 	clusterNode.Kind = "ClusterNode"
