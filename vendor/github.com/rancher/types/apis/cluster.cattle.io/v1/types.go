@@ -120,6 +120,8 @@ type RancherKubernetesEngineConfig struct {
 	Authentication AuthConfig `yaml:"auth" json:"auth,omitempty"`
 	// YAML manifest for user provided addons to be deployed on the cluster
 	Addons string `yaml:"addons" json:"addons,omitempty"`
+	// List of images used internally for proxy, cert downlaod and kubedns
+	SystemImages map[string]string `yaml:"system_images" json:"systemImages,omitempty"`
 	// SSH Private Key Path
 	SSHKeyPath string `yaml:"ssh_key_path" json:"sshKeyPath,omitempty"`
 }
@@ -137,6 +139,10 @@ type RKEConfigNode struct {
 	User string `yaml:"user" json:"user,omitempty"`
 	// Optional - Docker socket on the node that will be used in tunneling
 	DockerSocket string `yaml:"docker_socket" json:"dockerSocket,omitempty"`
+	// SSH Private Key
+	SSHKey string `yaml:"ssh_key" json:"sshKey,omitempty"`
+	// SSH Private Key Path
+	SSHKeyPath string `yaml:"ssh_key_path" json:"sshKeyPath,omitempty"`
 }
 
 type RKEConfigServices struct {
