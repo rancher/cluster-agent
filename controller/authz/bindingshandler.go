@@ -2,11 +2,10 @@ package authz
 
 import (
 	"fmt"
-
 	"strings"
 
 	"github.com/pkg/errors"
-	authzv1 "github.com/rancher/types/apis/authorization.cattle.io/v1"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
@@ -18,26 +17,26 @@ import (
 	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
 )
 
-func Register(workload *config.WorkloadContext) {
+func Register(workload *config.ClusterContext) {
 	r := &roleHandler{
 		Namespaces:                 workload.K8sClient.CoreV1().Namespaces(),
 		PodSecurityPolicies:        workload.K8sClient.ExtensionsV1beta1().PodSecurityPolicies(),
-		ProjectRoleTemplates:       workload.Cluster.Authorization.ProjectRoleTemplates(""),
-		PodSecurityPolicyTemplates: workload.Cluster.Authorization.PodSecurityPolicyTemplates(""),
+		ProjectRoleTemplates:       workload.Management.Management.ProjectRoleTemplates(""),
+		PodSecurityPolicyTemplates: workload.Management.Management.PodSecurityPolicyTemplates(""),
 		RBAC: workload.K8sClient.RbacV1(),
 	}
-	workload.Cluster.Authorization.ProjectRoleTemplateBindings("").Controller().AddHandler(r.sync)
+	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.sync)
 }
 
 type roleHandler struct {
 	Namespaces                 v1.NamespaceInterface
 	PodSecurityPolicies        v1beta1.PodSecurityPolicyInterface
-	ProjectRoleTemplates       authzv1.ProjectRoleTemplateInterface
-	PodSecurityPolicyTemplates authzv1.PodSecurityPolicyTemplateInterface
+	ProjectRoleTemplates       v3.ProjectRoleTemplateInterface
+	PodSecurityPolicyTemplates v3.PodSecurityPolicyTemplateInterface
 	RBAC                       rbacv1client.RbacV1Interface
 }
 
-func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBinding) error {
+func (r *roleHandler) sync(key string, binding *v3.ProjectRoleTemplateBinding) error {
 	if binding == nil {
 		// TODO Delete
 		return nil
@@ -63,7 +62,7 @@ func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBindi
 	// Aggregate rules for all sub-roleTemplates
 	builtinRoles := map[string]bool{}
 	allRules := []rbacv1.PolicyRule{}
-	pspTemplates := map[string]*authzv1.PodSecurityPolicyTemplate{}
+	pspTemplates := map[string]*v3.PodSecurityPolicyTemplate{}
 	if rt.Builtin {
 		builtinRoles[rt.Name] = true
 	} else {
@@ -130,8 +129,8 @@ func (r *roleHandler) sync(key string, binding *authzv1.ProjectRoleTemplateBindi
 	return nil
 }
 
-func (r *roleHandler) ensurePSPs(ns string, rt *authzv1.ProjectRoleTemplate, allRules []rbacv1.PolicyRule,
-	binding *authzv1.ProjectRoleTemplateBinding, pspTemplates map[string]*authzv1.PodSecurityPolicyTemplate) error {
+func (r *roleHandler) ensurePSPs(ns string, rt *v3.ProjectRoleTemplate, allRules []rbacv1.PolicyRule,
+	binding *v3.ProjectRoleTemplateBinding, pspTemplates map[string]*v3.PodSecurityPolicyTemplate) error {
 	pspCli := r.PodSecurityPolicies
 	for name, pspTemplate := range pspTemplates {
 		if psp, err := pspCli.Get(name, metav1.GetOptions{}); err == nil {
@@ -155,8 +154,8 @@ func (r *roleHandler) ensurePSPs(ns string, rt *authzv1.ProjectRoleTemplate, all
 	return nil
 }
 
-func (r *roleHandler) ensureRole(ns string, rt *authzv1.ProjectRoleTemplate, allRules []rbacv1.PolicyRule,
-	binding *authzv1.ProjectRoleTemplateBinding) error {
+func (r *roleHandler) ensureRole(ns string, rt *v3.ProjectRoleTemplate, allRules []rbacv1.PolicyRule,
+	binding *v3.ProjectRoleTemplateBinding) error {
 	roleCli := r.RBAC.Roles(ns)
 	if role, err := roleCli.Get(rt.Name, metav1.GetOptions{}); err == nil {
 		role.Rules = allRules
@@ -172,7 +171,7 @@ func (r *roleHandler) ensureRole(ns string, rt *authzv1.ProjectRoleTemplate, all
 	return err
 }
 
-func (r *roleHandler) ensureBinding(ns, roleName string, binding *authzv1.ProjectRoleTemplateBinding) error {
+func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
 	bindingCli := r.RBAC.RoleBindings(ns)
 	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, binding.Subject.Kind, binding.Subject.Name))
 	_, err := bindingCli.Get(bindingName, metav1.GetOptions{})

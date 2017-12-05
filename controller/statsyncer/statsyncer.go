@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/rancher/cluster-agent/utils"
-	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -23,17 +23,17 @@ const (
 
 type StatSyncer struct {
 	clusterName  string
-	Clusters     clusterv1.ClusterInterface
-	ClusterNodes clusterv1.ClusterNodeInterface
+	Clusters     v3.ClusterInterface
+	ClusterNodes v3.MachineInterface
 	Pods         corev1.PodInterface
 	Nodes        corev1.NodeInterface
 }
 
-func Register(workload *config.WorkloadContext) {
+func Register(workload *config.ClusterContext) {
 	s := &StatSyncer{
 		clusterName:  workload.ClusterName,
-		Clusters:     workload.Cluster.Cluster.Clusters(""),
-		ClusterNodes: workload.Cluster.Cluster.ClusterNodes(""),
+		Clusters:     workload.Management.Management.Clusters(""),
+		ClusterNodes: workload.Management.Management.Machines(""),
 		Pods:         workload.K8sClient.CoreV1().Pods(""),
 		Nodes:        workload.K8sClient.CoreV1().Nodes(),
 	}
@@ -80,11 +80,11 @@ func (s *StatSyncer) syncClusterNodeResources() error {
 	return s.updateClusterNodeResources(cnodes, nodeNameToNode)
 }
 
-func (s *StatSyncer) updateClusterNodeResources(cnodes *clusterv1.ClusterNodeList, nodeNameToNode map[string]*v1.Node) error {
+func (s *StatSyncer) updateClusterNodeResources(cnodes *v3.MachineList, nodeNameToNode map[string]*v1.Node) error {
 	for _, cnode := range cnodes.Items {
-		node := nodeNameToNode[cnode.NodeName]
+		node := nodeNameToNode[cnode.Status.NodeName]
 		if node == nil {
-			logrus.Warnf("Skip adding cluster node resources [%s] Error getting Node %v", cnode.NodeName, node.Name)
+			logrus.Warnf("Skip adding cluster node resources [%s] Error getting Node %v", cnode.Status.NodeName, node.Name)
 			continue
 		}
 		pods, err := s.getNonTerminatedPods(node.Name)
@@ -115,11 +115,18 @@ func (s *StatSyncer) updateClusterNodeResources(cnodes *clusterv1.ClusterNodeLis
 	return nil
 }
 
-func isClusterNodeChanged(cnode *clusterv1.ClusterNode, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) bool {
+func isClusterNodeChanged(cnode *v3.Machine, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) bool {
 	return !isEqual(cnode.Status.Requested, requests) || !isEqual(cnode.Status.Limits, limits)
 }
 
-func (s *StatSyncer) updateClusterNode(cnode *clusterv1.ClusterNode, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) error {
+func (s *StatSyncer) updateClusterNode(cnode *v3.Machine, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) error {
+	if cnode.Status.Requested == nil {
+		cnode.Status.Requested = v1.ResourceList{}
+	}
+	if cnode.Status.Limits == nil {
+		cnode.Status.Limits = v1.ResourceList{}
+	}
+
 	for name, quantity := range requests {
 		cnode.Status.Requested[name] = quantity
 	}
@@ -155,7 +162,7 @@ func (s *StatSyncer) aggregate(data map[string]map[string]map[v1.ResourceName]re
 	return requests, limits
 }
 
-func (s *StatSyncer) getCluster() (*clusterv1.Cluster, error) {
+func (s *StatSyncer) getCluster() (*v3.Cluster, error) {
 	return s.Clusters.Get(s.clusterName, metav1.GetOptions{})
 }
 

@@ -3,7 +3,7 @@ package nodesyncer
 import (
 	"fmt"
 
-	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -12,16 +12,16 @@ import (
 )
 
 type NodeSyncer struct {
-	ClusterNodes clusterv1.ClusterNodeInterface
-	Clusters     clusterv1.ClusterInterface
+	ClusterNodes v3.MachineInterface
+	Clusters     v3.ClusterInterface
 	clusterName  string
 }
 
-func Register(workload *config.WorkloadContext) {
+func Register(workload *config.ClusterContext) {
 	n := &NodeSyncer{
 		clusterName:  workload.ClusterName,
-		ClusterNodes: workload.Cluster.Cluster.ClusterNodes(""),
-		Clusters:     workload.Cluster.Cluster.Clusters(""),
+		ClusterNodes: workload.Management.Management.Machines(""),
+		Clusters:     workload.Management.Management.Clusters(""),
 	}
 
 	workload.Core.Nodes("").Controller().AddHandler(n.sync)
@@ -53,13 +53,13 @@ func (n *NodeSyncer) deleteClusterNode(nodeName string) error {
 	return nil
 }
 
-func (n *NodeSyncer) getClusterNode(nodeName string) (*clusterv1.ClusterNode, error) {
+func (n *NodeSyncer) getClusterNode(nodeName string) (*v3.Machine, error) {
 	nodes, err := n.ClusterNodes.List(metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 	for _, node := range nodes.Items {
-		if node.NodeName == nodeName {
+		if node.Status.NodeName == nodeName {
 			return &node, nil
 		}
 	}
@@ -106,22 +106,24 @@ func (n *NodeSyncer) createOrUpdateClusterNode(node *v1.Node) error {
 	return nil
 }
 
-func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node, cluster *clusterv1.Cluster) *clusterv1.ClusterNode {
+func (n *NodeSyncer) convertNodeToClusterNode(node *v1.Node, cluster *v3.Cluster) *v3.Machine {
 	if node == nil {
 		return nil
 	}
-	clusterNode := &clusterv1.ClusterNode{
-		NodeSpec: node.Spec,
-		Status: clusterv1.ClusterNodeStatus{
+	clusterNode := &v3.Machine{
+		Spec: v3.MachineSpec{
+			NodeSpec: node.Spec,
+		},
+		Status: v3.MachineStatus{
 			NodeStatus: node.Status,
 		},
 	}
-	clusterNode.APIVersion = "cluster.cattle.io/v1"
-	clusterNode.Kind = "ClusterNode"
-	clusterNode.ClusterName = n.clusterName
-	clusterNode.NodeName = node.Name
+	clusterNode.APIVersion = "management.cattle.io/v3"
+	clusterNode.Kind = "Machine"
+	clusterNode.Spec.ClusterName = n.clusterName
+	clusterNode.Status.NodeName = node.Name
 	clusterNode.ObjectMeta = metav1.ObjectMeta{
-		GenerateName: "clusternode-",
+		GenerateName: "machine-",
 		Labels:       node.Labels,
 		Annotations:  node.Annotations,
 	}

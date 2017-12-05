@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/rancher/cluster-agent/utils"
-	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
 	corev1 "github.com/rancher/types/apis/core/v1"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -19,14 +19,14 @@ const (
 
 type HealthSyncer struct {
 	clusterName       string
-	Clusters          clusterv1.ClusterInterface
+	Clusters          v3.ClusterInterface
 	ComponentStatuses corev1.ComponentStatusInterface
 }
 
-func Register(workload *config.WorkloadContext) {
+func Register(workload *config.ClusterContext) {
 	h := &HealthSyncer{
 		clusterName:       workload.ClusterName,
-		Clusters:          workload.Cluster.Cluster.Clusters(""),
+		Clusters:          workload.Management.Management.Clusters(""),
 		ComponentStatuses: workload.Core.ComponentStatuses(""),
 	}
 
@@ -57,10 +57,10 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	cses, err := h.ComponentStatuses.List(metav1.ListOptions{})
 	if err != nil {
 		logrus.Debugf("Error getting componentstatuses for server health %v", err)
-		updateConditionStatus(cluster, clusterv1.ClusterConditionReady, v1.ConditionFalse)
+		updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionFalse)
 		return nil
 	}
-	updateConditionStatus(cluster, clusterv1.ClusterConditionReady, v1.ConditionTrue)
+	updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionTrue)
 	logrus.Infof("Cluster [%s] Condition Ready", h.clusterName)
 
 	h.updateClusterStatus(cluster, cses.Items)
@@ -72,26 +72,26 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	return nil
 }
 
-func (h *HealthSyncer) updateClusterStatus(cluster *clusterv1.Cluster, cses []v1.ComponentStatus) {
-	cluster.Status.ComponentStatuses = []clusterv1.ClusterComponentStatus{}
+func (h *HealthSyncer) updateClusterStatus(cluster *v3.Cluster, cses []v1.ComponentStatus) {
+	cluster.Status.ComponentStatuses = []v3.ClusterComponentStatus{}
 	for _, cs := range cses {
 		clusterCS := convertToClusterComponentStatus(&cs)
 		cluster.Status.ComponentStatuses = append(cluster.Status.ComponentStatuses, *clusterCS)
 	}
 }
 
-func (h *HealthSyncer) getCluster() (*clusterv1.Cluster, error) {
+func (h *HealthSyncer) getCluster() (*v3.Cluster, error) {
 	return h.Clusters.Get(h.clusterName, metav1.GetOptions{})
 }
 
-func convertToClusterComponentStatus(cs *v1.ComponentStatus) *clusterv1.ClusterComponentStatus {
-	return &clusterv1.ClusterComponentStatus{
+func convertToClusterComponentStatus(cs *v1.ComponentStatus) *v3.ClusterComponentStatus {
+	return &v3.ClusterComponentStatus{
 		Name:       cs.Name,
 		Conditions: cs.Conditions,
 	}
 }
 
-func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType, status v1.ConditionStatus) {
+func updateConditionStatus(cluster *v3.Cluster, conditionType v3.ClusterConditionType, status v1.ConditionStatus) {
 	pos, condition := getConditionByType(cluster, conditionType)
 	currTime := time.Now().UTC().Format(time.RFC3339)
 
@@ -103,7 +103,7 @@ func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.C
 		condition.LastUpdateTime = currTime
 		cluster.Status.Conditions[pos] = *condition
 	} else {
-		ncondition := &clusterv1.ClusterCondition{
+		ncondition := &v3.ClusterCondition{
 			Status:             status,
 			LastUpdateTime:     currTime,
 			LastTransitionTime: currTime,
@@ -112,7 +112,7 @@ func updateConditionStatus(cluster *clusterv1.Cluster, conditionType clusterv1.C
 	}
 }
 
-func getConditionByType(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType) (int, *clusterv1.ClusterCondition) {
+func getConditionByType(cluster *v3.Cluster, conditionType v3.ClusterConditionType) (int, *v3.ClusterCondition) {
 	for index, condition := range cluster.Status.Conditions {
 		if condition.Type == conditionType {
 			return index, &condition

@@ -42,18 +42,18 @@ func main() {
 	app.Run(os.Args)
 }
 
-func runControllers(clusterManagerCfg string, workloadCfg string, clusterName string) error {
-	clusterKubeConfig, err := clientcmd.BuildConfigFromFlags("", clusterManagerCfg)
+func runControllers(clusterManagerCfg string, clusterCfg string, clusterName string) error {
+	clusterManagementKubeConfig, err := clientcmd.BuildConfigFromFlags("", clusterManagerCfg)
 	if err != nil {
 		return err
 	}
 
-	workloadKubeConfig, err := clientcmd.BuildConfigFromFlags("", workloadCfg)
+	clusterKubeConfig, err := clientcmd.BuildConfigFromFlags("", clusterCfg)
 	if err != nil {
 		return err
 	}
 
-	workload, err := config.NewWorkloadContext(*clusterKubeConfig, *workloadKubeConfig, clusterName)
+	workload, err := config.NewClusterContext(*clusterManagementKubeConfig, *clusterKubeConfig, clusterName)
 	if err != nil {
 		return err
 	}

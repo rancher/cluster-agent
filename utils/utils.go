@@ -1,18 +1,18 @@
 package utils
 
 import (
-	clusterv1 "github.com/rancher/types/apis/cluster.cattle.io/v1"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 )
 
-func IsClusterProvisioned(cluster *clusterv1.Cluster) bool {
-	isProvisioned := getClusterConditionByType(cluster, clusterv1.ClusterConditionProvisioned)
+func IsClusterProvisioned(cluster *v3.Cluster) bool {
+	isProvisioned := getClusterConditionByType(cluster, v3.ClusterConditionProvisioned)
 	if isProvisioned == nil {
 		return false
 	}
 	return isProvisioned.Status == "True"
 }
 
-func getClusterConditionByType(cluster *clusterv1.Cluster, conditionType clusterv1.ClusterConditionType) *clusterv1.ClusterCondition {
+func getClusterConditionByType(cluster *v3.Cluster, conditionType v3.ClusterConditionType) *v3.ClusterCondition {
 	for _, condition := range cluster.Status.Conditions {
 		if condition.Type == conditionType {
 			return &condition
