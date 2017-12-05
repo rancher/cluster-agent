@@ -1009,6 +1009,13 @@ func (in *RancherKubernetesEngineConfig) DeepCopyInto(out *RancherKubernetesEngi
 	in.Services.DeepCopyInto(&out.Services)
 	in.Network.DeepCopyInto(&out.Network)
 	in.Authentication.DeepCopyInto(&out.Authentication)
+	if in.SystemImages != nil {
+		in, out := &in.SystemImages, &out.SystemImages
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 
