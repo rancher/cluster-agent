@@ -104,6 +104,7 @@ func (s *StatSyncer) updateClusterNodeResources(cnodes *v3.MachineList, nodeName
 			}
 		}
 		nodeRequests, nodeLimits := s.aggregate(nodeData)
+		nodeRequests[v1.ResourcePods] = *resource.NewQuantity(int64(len(pods.Items)), resource.DecimalSI)
 		if isClusterNodeChanged(&cnode, nodeRequests, nodeLimits) {
 			err = s.updateClusterNode(&cnode, nodeRequests, nodeLimits)
 			if err != nil {
@@ -116,7 +117,7 @@ func (s *StatSyncer) updateClusterNodeResources(cnodes *v3.MachineList, nodeName
 }
 
 func isClusterNodeChanged(cnode *v3.Machine, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) bool {
-	return !isEqual(cnode.Status.Requested, requests) || !isEqual(cnode.Status.Limits, limits)
+	return !isEqual(requests, cnode.Status.Requested) || !isEqual(limits, cnode.Status.Limits)
 }
 
 func (s *StatSyncer) updateClusterNode(cnode *v3.Machine, requests map[v1.ResourceName]resource.Quantity, limits map[v1.ResourceName]resource.Quantity) error {
