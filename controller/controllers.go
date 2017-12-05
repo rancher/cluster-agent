@@ -8,7 +8,7 @@ import (
 	"github.com/rancher/types/config"
 )
 
-func Register(workload *config.WorkloadContext) {
+func Register(workload *config.ClusterContext) {
 	nodesyncer.Register(workload)
 	healthsyncer.Register(workload)
 	authz.Register(workload)
