@@ -15,6 +15,8 @@ import (
 
 const (
 	syncInterval = 15 * time.Second
+	msgReady     = "Cluster ready to serve API"
+	msgNotReady  = "Cluster not ready to serve API"
 )
 
 type HealthSyncer struct {
@@ -57,10 +59,10 @@ func (h *HealthSyncer) updateClusterHealth() error {
 	cses, err := h.ComponentStatuses.List(metav1.ListOptions{})
 	if err != nil {
 		logrus.Debugf("Error getting componentstatuses for server health %v", err)
-		updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionFalse)
+		updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionFalse, msgNotReady)
 		return nil
 	}
-	updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionTrue)
+	updateConditionStatus(cluster, v3.ClusterConditionReady, v1.ConditionTrue, msgReady)
 	logrus.Infof("Cluster [%s] Condition Ready", h.clusterName)
 
 	h.updateClusterStatus(cluster, cses.Items)
@@ -91,7 +93,7 @@ func convertToClusterComponentStatus(cs *v1.ComponentStatus) *v3.ClusterComponen
 	}
 }
 
-func updateConditionStatus(cluster *v3.Cluster, conditionType v3.ClusterConditionType, status v1.ConditionStatus) {
+func updateConditionStatus(cluster *v3.Cluster, conditionType v3.ClusterConditionType, status v1.ConditionStatus, msg string) {
 	pos, condition := getConditionByType(cluster, conditionType)
 	currTime := time.Now().UTC().Format(time.RFC3339)
 
@@ -101,14 +103,8 @@ func updateConditionStatus(cluster *v3.Cluster, conditionType v3.ClusterConditio
 			condition.LastTransitionTime = currTime
 		}
 		condition.LastUpdateTime = currTime
+		condition.Reason = msg
 		cluster.Status.Conditions[pos] = *condition
-	} else {
-		ncondition := &v3.ClusterCondition{
-			Status:             status,
-			LastUpdateTime:     currTime,
-			LastTransitionTime: currTime,
-		}
-		cluster.Status.Conditions = append(cluster.Status.Conditions, *ncondition)
 	}
 }
 
