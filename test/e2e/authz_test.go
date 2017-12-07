@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/rancher/cluster-agent/controller/authz"
-	authzv1 "github.com/rancher/types/apis/authorization.cattle.io/v1"
+	authzv1 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"gopkg.in/check.v1"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
@@ -23,7 +23,7 @@ func Test(t *testing.T) { check.TestingT(t) }
 type AuthzSuite struct {
 	extClient     *extclient.Clientset
 	clusterClient *clientset.Clientset
-	workloadCtx   *config.WorkloadContext
+	ctx           *config.ClusterContext
 }
 
 var _ = check.Suite(&AuthzSuite{})
@@ -35,10 +35,10 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// create a PodSecurityPolicyTemplate to be referenced in a PolicyRule
 	pspName := "podsecuritypolicy-1"
 	s.clusterClient.ExtensionsV1beta1().PodSecurityPolicies().Delete(pspName, &metav1.DeleteOptions{})
-	pspTemplate, err := s.workloadCtx.Cluster.Authorization.PodSecurityPolicyTemplates("").Create(&authzv1.PodSecurityPolicyTemplate{
+	pspTemplate, err := s.ctx.Management.Management.PodSecurityPolicyTemplates("").Create(&authzv1.PodSecurityPolicyTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "PodSecurityPolicyTemplates",
-			APIVersion: "authorization.cattle.io/v1",
+			APIVersion: "management.cattle.io/v3",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pspName,
@@ -175,10 +175,10 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 }
 
 func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject, projectName string, rtName string, c *check.C) *authzv1.ProjectRoleTemplateBinding {
-	binding, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
+	binding, err := s.ctx.Management.Management.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplateBinding",
-			APIVersion: "authorization.cattle.io/v1",
+			APIVersion: "management.cattle.io/v3",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: bindingName,
@@ -194,10 +194,10 @@ func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject
 }
 
 func (s *AuthzSuite) createProjectRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, builtin bool, c *check.C) (*authzv1.ProjectRoleTemplate, error) {
-	rt, err := s.workloadCtx.Cluster.Authorization.ProjectRoleTemplates("").Create(&authzv1.ProjectRoleTemplate{
+	rt, err := s.ctx.Management.Management.ProjectRoleTemplates("").Create(&authzv1.ProjectRoleTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplate",
-			APIVersion: "authorization.cattle.io/v1",
+			APIVersion: "management.cattle.io/v3",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -248,7 +248,7 @@ func (s *AuthzSuite) SetUpSuite(c *check.C) {
 	clusterClient, extClient, workload := clientForSetup(c)
 	s.extClient = extClient
 	s.clusterClient = clusterClient
-	s.workloadCtx = workload
+	s.ctx = workload
 	s.setupCRDs(c)
 
 	authz.Register(workload)
@@ -272,12 +272,12 @@ func (s *AuthzSuite) setupCRDs(c *check.C) {
 	c.Assert(err, check.IsNil)
 	defer crdWatch.Stop()
 
-	setupCRD("projectroletemplate", "projectroletemplates", "authorization.cattle.io", "ProjectRoleTemplate", "v1",
+	setupCRD("projectroletemplate", "projectroletemplates", "management.cattle.io", "ProjectRoleTemplate", "v3",
 		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
 
-	setupCRD("projectroletemplatebinding", "projectroletemplatebindings", "authorization.cattle.io", "ProjectRoleTemplateBinding", "v1",
+	setupCRD("projectroletemplatebinding", "projectroletemplatebindings", "management.cattle.io", "ProjectRoleTemplateBinding", "v3",
 		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
 
-	setupCRD("podsecuritypolicytemplate", "podsecuritypolicytemplates", "authorization.cattle.io", "PodSecurityPolicyTemplates", "v1",
+	setupCRD("podsecuritypolicytemplate", "podsecuritypolicytemplates", "management.cattle.io", "PodSecurityPolicyTemplates", "v3",
 		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
 }
