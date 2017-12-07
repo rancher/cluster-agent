@@ -143,7 +143,7 @@ func newCRD(fullName, name, plural, group, kind, version string, scope apiextens
 	}
 }
 
-func clientForSetup(c *check.C) (*clientset.Clientset, *extclient.Clientset, *config.WorkloadContext) {
+func clientForSetup(c *check.C) (*clientset.Clientset, *extclient.Clientset, *config.ClusterContext) {
 	mgrConfig := os.Getenv("TEST_CLUSTER_MGR_CONFIG")
 	clusterKubeConfig, err := clientcmd.BuildConfigFromFlags("", mgrConfig)
 	c.Assert(err, check.IsNil)
@@ -158,7 +158,7 @@ func clientForSetup(c *check.C) (*clientset.Clientset, *extclient.Clientset, *co
 	clusterClient, err := clientset.NewForConfig(workloadKubeConfig)
 	c.Assert(err, check.IsNil)
 
-	workload, err := config.NewWorkloadContext(*clusterKubeConfig, *workloadKubeConfig, "")
+	workload, err := config.NewClusterContext(*clusterKubeConfig, *workloadKubeConfig, "")
 	c.Assert(err, check.IsNil)
 
 	return clusterClient, extensionClient, workload
