@@ -120,7 +120,7 @@ Loop:
 				}
 			}
 		case <-time.After(5 * time.Second):
-			c.Fatalf("missing watch event for delete event for %v", name)
+			c.Fatalf("timeout waiting for CRD %v to be deleted", name)
 		}
 	}
 }
@@ -173,6 +173,14 @@ func watchChecker(watcher watch.Interface, c *check.C, checker func(watchEvent w
 			}
 		case <-time.After(5 * time.Second):
 			c.Fatalf("Timeout waiting watch condition")
+		}
+	}
+}
+
+func deleteNSOnPass(name string, nsClient v1.NamespaceInterface, c *check.C) {
+	if !c.Failed() {
+		if err := nsClient.Delete(name, &metav1.DeleteOptions{}); err != nil {
+			c.Logf("Error deleting ns %v: %v", name, err)
 		}
 	}
 }
