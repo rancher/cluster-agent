@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"context"
+
 	"github.com/rancher/cluster-agent/utils"
 	corev1 "github.com/rancher/types/apis/core/v1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
@@ -25,18 +27,18 @@ type HealthSyncer struct {
 	ComponentStatuses corev1.ComponentStatusInterface
 }
 
-func Register(workload *config.ClusterContext) {
+func Register(ctx context.Context, workload *config.ClusterContext) {
 	h := &HealthSyncer{
 		clusterName:       workload.ClusterName,
 		Clusters:          workload.Management.Management.Clusters(""),
 		ComponentStatuses: workload.Core.ComponentStatuses(""),
 	}
 
-	go h.syncHealth(syncInterval)
+	go h.syncHealth(ctx, syncInterval)
 }
 
-func (h *HealthSyncer) syncHealth(syncHealth time.Duration) {
-	for range time.Tick(syncHealth) {
+func (h *HealthSyncer) syncHealth(ctx context.Context, syncHealth time.Duration) {
+	for range utils.TickerContext(ctx, syncHealth) {
 		err := h.updateClusterHealth()
 		if err != nil {
 			logrus.Info(err)
