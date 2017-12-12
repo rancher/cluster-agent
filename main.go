@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	controller "github.com/rancher/cluster-agent/controller"
@@ -59,5 +60,6 @@ func runControllers(clusterManagerCfg string, clusterCfg string, clusterName str
 	}
 
 	controller.Register(workload)
-	return workload.StartAndWait()
+	ctx := context.Background()
+	return workload.StartAndWait(ctx)
 }
