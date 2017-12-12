@@ -8,7 +8,6 @@ import (
 	authzv1 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"gopkg.in/check.v1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -33,36 +32,10 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// create project
 	projectName := "test-project-1"
 
-	// create a PodSecurityPolicyTemplate to be referenced in a PolicyRule
-	pspName := "test-psp-1"
-	s.clusterClient.ExtensionsV1beta1().PodSecurityPolicies().Delete(pspName, &metav1.DeleteOptions{})
-	pspTemplate, err := s.ctx.Management.Management.PodSecurityPolicyTemplates("").Create(&authzv1.PodSecurityPolicyTemplate{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "PodSecurityPolicyTemplates",
-			APIVersion: "management.cattle.io/v3",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: pspName,
-		},
-		Spec: extv1beta1.PodSecurityPolicySpec{
-			AllowedHostPaths:       []extv1beta1.AllowedHostPath{{PathPrefix: "/tmp"}},
-			ReadOnlyRootFilesystem: true,
-			SELinux:                extv1beta1.SELinuxStrategyOptions{Rule: extv1beta1.SELinuxStrategyRunAsAny},
-			RunAsUser:              extv1beta1.RunAsUserStrategyOptions{Rule: extv1beta1.RunAsUserStrategyMustRunAsNonRoot},
-			SupplementalGroups:     extv1beta1.SupplementalGroupsStrategyOptions{Rule: extv1beta1.SupplementalGroupsStrategyRunAsAny},
-			FSGroup:                extv1beta1.FSGroupStrategyOptions{Rule: extv1beta1.FSGroupStrategyRunAsAny},
-		},
-	})
-	c.Assert(err, check.IsNil)
-	c.Assert(pspTemplate.Name, check.Equals, pspName)
-	c.Assert(pspTemplate.Spec.ReadOnlyRootFilesystem, check.Equals, true)
-	c.Assert(pspTemplate.Spec.AllowedHostPaths, check.DeepEquals, []extv1beta1.AllowedHostPath{{PathPrefix: "/tmp"}})
-
 	// create RoleTemplate (this one will be referenced by the next one)
 	podRORoleTemplateName := "test-subrt-1"
 	s.clusterClient.RbacV1().ClusterRoles().Delete(podRORoleTemplateName, &metav1.DeleteOptions{})
-	// TODO This will break when we need to handle updating a subordinate role
-	rt, err := s.createRoleTemplate(podRORoleTemplateName,
+	subRT, err := s.createRoleTemplate(podRORoleTemplateName,
 		[]rbacv1.PolicyRule{
 			{
 				Verbs:           []string{"get", "list", "watch"},
@@ -71,12 +44,13 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 				ResourceNames:   []string{},
 				NonResourceURLs: []string{},
 			},
-		}, []string{}, []string{pspName}, false, c)
+		}, []string{}, false, c)
+	c.Assert(err, check.IsNil)
 
 	// create RoleTemplate that user will be bound to
 	rtName := "test-rt-1"
 	s.clusterClient.RbacV1().ClusterRoles().Delete(rtName, &metav1.DeleteOptions{})
-	rt2, err := s.createRoleTemplate(rtName,
+	rt, err := s.createRoleTemplate(rtName,
 		[]rbacv1.PolicyRule{
 			{
 				Verbs:           []string{"get", "list", "watch"},
@@ -85,17 +59,15 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 				ResourceNames:   []string{},
 				NonResourceURLs: []string{},
 			},
-		}, []string{podRORoleTemplateName}, []string{}, false, c)
+		}, []string{podRORoleTemplateName}, false, c)
 
 	// create namespace and watchers for resources in that namespace
 	ns := setupNS("test-authz-ns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
 	defer deleteNSOnPass(ns.Name, s.clusterClient.CoreV1().Namespaces(), c)
 	roleWatcher := s.roleWatcher(c)
 	bindingWatcher := s.bindingWatcher(ns.Name, c)
-	pspWatcher := s.pspWatcher(c)
 	defer roleWatcher.Stop()
 	defer bindingWatcher.Stop()
-	defer pspWatcher.Stop()
 
 	// create ProjectRoleTemplateBinding
 	subject := rbacv1.Subject{
@@ -107,8 +79,8 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// assert corresponding role is created with all the rules
 	rolesActual := map[string]*rbacv1.ClusterRole{}
 	rolesExpected := map[string]*authzv1.RoleTemplate{
-		rt.Name:  rt,
-		rt2.Name: rt2,
+		subRT.Name: subRT,
+		rt.Name:    rt,
 	}
 	watchChecker(roleWatcher, c, func(watchEvent watch.Event) bool {
 		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
@@ -138,17 +110,6 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		}
 		return false
 	})
-
-	// assert psp is created properly
-	watchChecker(pspWatcher, c, func(watchEvent watch.Event) bool {
-		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
-			if psp, ok := watchEvent.Object.(*extv1beta1.PodSecurityPolicy); ok {
-				c.Assert(psp.Spec, check.DeepEquals, pspTemplate.Spec)
-				return true
-			}
-		}
-		return false
-	})
 }
 
 func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
@@ -158,7 +119,7 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	// create RoleTemplate that user will be bound to
 	rtName := "test-rt-view-1"
 	_, err := s.createRoleTemplate(rtName,
-		[]rbacv1.PolicyRule{}, []string{}, []string{}, true, c)
+		[]rbacv1.PolicyRule{}, []string{}, true, c)
 
 	// create namespace and watchers for resources in that namespace
 	ns := setupNS("test-authz-builtin-ns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
@@ -217,7 +178,7 @@ func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject
 	return binding
 }
 
-func (s *AuthzSuite) createRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, pspts []string, builtin bool, c *check.C) (*authzv1.RoleTemplate, error) {
+func (s *AuthzSuite) createRoleTemplate(name string, rules []rbacv1.PolicyRule, prts []string, builtin bool, c *check.C) (*authzv1.RoleTemplate, error) {
 	rt, err := s.ctx.Management.Management.RoleTemplates("").Create(&authzv1.RoleTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "RoleTemplate",
@@ -226,10 +187,9 @@ func (s *AuthzSuite) createRoleTemplate(name string, rules []rbacv1.PolicyRule, 
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Rules:                          rules,
-		RoleTemplateNames:              prts,
-		PodSecurityPolicyTemplateNames: pspts,
-		Builtin: builtin,
+		Rules:             rules,
+		RoleTemplateNames: prts,
+		Builtin:           builtin,
 	})
 	c.Assert(err, check.IsNil)
 	c.Assert(rt.Name, check.Equals, name)
