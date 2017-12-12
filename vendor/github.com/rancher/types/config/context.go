@@ -7,8 +7,10 @@ import (
 	"github.com/rancher/norman/signal"
 	appsv1beta2 "github.com/rancher/types/apis/apps/v1beta2"
 	corev1 "github.com/rancher/types/apis/core/v1"
+	extv1beta1 "github.com/rancher/types/apis/extensions/v1beta1"
 	managementv3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	projectv3 "github.com/rancher/types/apis/project.cattle.io/v3"
+	rbacv1 "github.com/rancher/types/apis/rbac.authorization.k8s.io/v1"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -16,6 +18,7 @@ import (
 )
 
 type ManagementContext struct {
+	LocalConfig       *rest.Config
 	RESTConfig        rest.Config
 	UnversionedClient rest.Interface
 
@@ -35,9 +38,11 @@ type ClusterContext struct {
 	UnversionedClient rest.Interface
 	K8sClient         kubernetes.Interface
 
-	Apps    appsv1beta2.Interface
-	Project projectv3.Interface
-	Core    corev1.Interface
+	Apps       appsv1beta2.Interface
+	Project    projectv3.Interface
+	Core       corev1.Interface
+	RBAC       rbacv1.Interface
+	Extensions extv1beta1.Interface
 }
 
 func (w *ClusterContext) controllers() []controller.Starter {
@@ -45,6 +50,8 @@ func (w *ClusterContext) controllers() []controller.Starter {
 		w.Apps,
 		w.Project,
 		w.Core,
+		w.RBAC,
+		w.Extensions,
 	}
 }
 
@@ -86,14 +93,14 @@ func (c *ManagementContext) StartAndWait() error {
 	return ctx.Err()
 }
 
-func NewClusterContext(clusterConfig, config rest.Config, clusterName string) (*ClusterContext, error) {
+func NewClusterContext(managementConfig, config rest.Config, clusterName string) (*ClusterContext, error) {
 	var err error
 	context := &ClusterContext{
 		RESTConfig:  config,
 		ClusterName: clusterName,
 	}
 
-	context.Management, err = NewManagementContext(clusterConfig)
+	context.Management, err = NewManagementContext(managementConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +121,16 @@ func NewClusterContext(clusterConfig, config rest.Config, clusterName string) (*
 	}
 
 	context.Project, err = projectv3.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	context.RBAC, err = rbacv1.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	context.Extensions, err = extv1beta1.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -139,8 +156,8 @@ func (w *ClusterContext) Start(ctx context.Context) error {
 	return controller.SyncThenSync(ctx, 5, controllers...)
 }
 
-func (w *ClusterContext) StartAndWait() error {
-	ctx := signal.SigTermCancelContext(context.Background())
+func (w *ClusterContext) StartAndWait(ctx context.Context) error {
+	ctx = signal.SigTermCancelContext(ctx)
 	w.Start(ctx)
 	<-ctx.Done()
 	return ctx.Err()

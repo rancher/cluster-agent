@@ -17,6 +17,8 @@ type Interface interface {
 	PodsGetter
 	NodesGetter
 	ComponentStatusesGetter
+	NamespacesGetter
+	EventsGetter
 }
 
 type Client struct {
@@ -27,6 +29,8 @@ type Client struct {
 	podControllers             map[string]PodController
 	nodeControllers            map[string]NodeController
 	componentStatusControllers map[string]ComponentStatusController
+	namespaceControllers       map[string]NamespaceController
+	eventControllers           map[string]EventController
 }
 
 func NewForConfig(config rest.Config) (Interface, error) {
@@ -46,6 +50,8 @@ func NewForConfig(config rest.Config) (Interface, error) {
 		podControllers:             map[string]PodController{},
 		nodeControllers:            map[string]NodeController{},
 		componentStatusControllers: map[string]ComponentStatusController{},
+		namespaceControllers:       map[string]NamespaceController{},
+		eventControllers:           map[string]EventController{},
 	}, nil
 }
 
@@ -94,6 +100,32 @@ type ComponentStatusesGetter interface {
 func (c *Client) ComponentStatuses(namespace string) ComponentStatusInterface {
 	objectClient := clientbase.NewObjectClient(namespace, c.restClient, &ComponentStatusResource, ComponentStatusGroupVersionKind, componentStatusFactory{})
 	return &componentStatusClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+type NamespacesGetter interface {
+	Namespaces(namespace string) NamespaceInterface
+}
+
+func (c *Client) Namespaces(namespace string) NamespaceInterface {
+	objectClient := clientbase.NewObjectClient(namespace, c.restClient, &NamespaceResource, NamespaceGroupVersionKind, namespaceFactory{})
+	return &namespaceClient{
+		ns:           namespace,
+		client:       c,
+		objectClient: objectClient,
+	}
+}
+
+type EventsGetter interface {
+	Events(namespace string) EventInterface
+}
+
+func (c *Client) Events(namespace string) EventInterface {
+	objectClient := clientbase.NewObjectClient(namespace, c.restClient, &EventResource, EventGroupVersionKind, eventFactory{})
+	return &eventClient{
 		ns:           namespace,
 		client:       c,
 		objectClient: objectClient,
