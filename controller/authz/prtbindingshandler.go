@@ -10,19 +10,12 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	typesrbacv1 "github.com/rancher/types/apis/rbac.authorization.k8s.io/v1"
 	"github.com/rancher/types/config"
-	"github.com/sirupsen/logrus"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
 const (
-	CreateAction     = "create"
-	UpdateAction     = "update"
-	RemoveAction     = "remove"
-	NoopAction       = "noop"
-	name             = "binding-handler"
 	bindingNameLabel = "io.cattle.field.projectRoleTemplateBindingName"
 	projectIDLabel   = "io.cattle.field.projectId"
 )
@@ -38,7 +31,7 @@ func Register(workload *config.ClusterContext) {
 		crLister:   workload.RBAC.ClusterRoles("").Controller().Lister(),
 		pspLister:  workload.Extensions.PodSecurityPolicies("").Controller().Lister(),
 	}
-	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.sync)
+	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.syncPRTB)
 }
 
 type roleHandler struct {
@@ -52,34 +45,16 @@ type roleHandler struct {
 	pspLister  typesextv1beta1.PodSecurityPolicyLister
 }
 
-func getAction(binding *v3.ProjectRoleTemplateBinding) string {
-	if binding == nil {
-		return NoopAction
+func (r *roleHandler) syncPRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
+	if binding.ObjectMeta.DeletionTimestamp == nil {
+		return r.ensurePRTB(key, binding)
 	}
 
-	if binding.ObjectMeta.DeletionTimestamp != nil {
-		return RemoveAction
-	}
-
-	return CreateAction
-}
-
-func (r *roleHandler) sync(key string, binding *v3.ProjectRoleTemplateBinding) error {
-	action := getAction(binding)
-	switch action {
-	case CreateAction:
-		return r.create(key, binding)
-	case UpdateAction:
-		// TODO Handle update
-		return nil
-	case RemoveAction:
-		// TODO Remove
-	}
-
+	// TODO delete
 	return nil
 }
 
-func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding) error {
+func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
 	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't get role template %v", binding.RoleTemplateName)
@@ -95,15 +70,10 @@ func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding)
 		return nil
 	}
 
-	pspTemplates := map[string]*v3.PodSecurityPolicyTemplate{}
 	roles := map[string]*v3.RoleTemplate{}
 
-	if err := r.gatherRolesAndPSPs(rt, roles, pspTemplates); err != nil {
-		return errors.Wrap(err, "couldn't gather RoleTemplates and PodSecurityPolicyTemplates")
-
-	}
-	if err := r.ensurePSPs(pspTemplates); err != nil {
-		return errors.Wrap(err, "couldn't ensure PodSecurityPolicies")
+	if err := r.gatherRoles(rt, roles); err != nil {
+		return err
 	}
 
 	if err := r.ensureRoles(roles); err != nil {
@@ -120,16 +90,7 @@ func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding)
 	return nil
 }
 
-func (r *roleHandler) gatherRolesAndPSPs(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate, pspTemplates map[string]*v3.PodSecurityPolicyTemplate) error {
-	for _, pspName := range rt.PodSecurityPolicyTemplateNames {
-		pspTemplate, err := r.psptLister.Get("", pspName)
-		if err != nil {
-			logrus.Warnf("Couldn't find PodSecurityPolicyTemplate %v. Skipping. Error: %v", pspName, err)
-			continue
-		}
-		pspTemplates[pspName] = pspTemplate
-	}
-
+func (r *roleHandler) gatherRoles(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate) error {
 	roleTemplates[rt.Name] = rt
 
 	for _, rtName := range rt.RoleTemplateNames {
@@ -137,33 +98,8 @@ func (r *roleHandler) gatherRolesAndPSPs(rt *v3.RoleTemplate, roleTemplates map[
 		if err != nil {
 			return errors.Wrapf(err, "couldn't get RoleTemplate %s", rtName)
 		}
-		if err := r.gatherRolesAndPSPs(subRT, roleTemplates, pspTemplates); err != nil {
+		if err := r.gatherRoles(subRT, roleTemplates); err != nil {
 			return errors.Wrapf(err, "couldn't gather RoleTemplate %s", rtName)
-		}
-	}
-
-	return nil
-}
-
-func (r *roleHandler) ensurePSPs(pspTemplates map[string]*v3.PodSecurityPolicyTemplate) error {
-	pspCli := r.workload.Extensions.PodSecurityPolicies("")
-	for name, pspTemplate := range pspTemplates {
-		if psp, err := r.pspLister.Get("", name); err == nil {
-			psp = psp.DeepCopy()
-			psp.Spec = pspTemplate.Spec
-			if _, err := pspCli.Update(psp); err != nil {
-				return errors.Wrapf(err, "couldn't update PodSecurityPolicy %v", name)
-			}
-			continue
-		}
-		_, err := pspCli.Create(&extv1beta1.PodSecurityPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Spec: pspTemplate.Spec,
-		})
-		if err != nil {
-			return errors.Wrapf(err, "couldn't create PodSecurityPolicy %v", name)
 		}
 	}
 
@@ -203,6 +139,7 @@ func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
 
 func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
 	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
+	// TODO dont use name, use a UID
 	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, binding.Subject.Kind, binding.Subject.Name))
 	_, err := r.rbLister.Get(ns, bindingName)
 	if err == nil {
