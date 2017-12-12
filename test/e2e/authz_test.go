@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"testing"
 
 	"github.com/rancher/cluster-agent/controller/authz"
@@ -278,7 +279,8 @@ func (s *AuthzSuite) SetUpSuite(c *check.C) {
 	authz.Register(workload)
 
 	go func() {
-		err := workload.StartAndWait()
+		ctx := context.Background()
+		err := workload.StartAndWait(ctx)
 		c.Assert(err, check.IsNil)
 	}()
 }

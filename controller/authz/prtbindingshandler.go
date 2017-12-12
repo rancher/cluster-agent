@@ -5,16 +5,16 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	typescorev1 "github.com/rancher/types/apis/core/v1"
+	typesextv1beta1 "github.com/rancher/types/apis/extensions/v1beta1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	typesrbacv1 "github.com/rancher/types/apis/rbac.authorization.k8s.io/v1"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
-	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
 )
 
 const (
@@ -29,21 +29,27 @@ const (
 
 func Register(workload *config.ClusterContext) {
 	r := &roleHandler{
-		Namespaces:                 workload.K8sClient.CoreV1().Namespaces(),
-		PodSecurityPolicies:        workload.K8sClient.ExtensionsV1beta1().PodSecurityPolicies(),
-		RoleTemplates:              workload.Management.Management.RoleTemplates(""),
-		PodSecurityPolicyTemplates: workload.Management.Management.PodSecurityPolicyTemplates(""),
-		RBAC: workload.K8sClient.RbacV1(),
+		workload:   workload,
+		rtLister:   workload.Management.Management.RoleTemplates("").Controller().Lister(),
+		psptLister: workload.Management.Management.PodSecurityPolicyTemplates("").Controller().Lister(),
+		nsLister:   workload.Core.Namespaces("").Controller().Lister(),
+		rbLister:   workload.RBAC.RoleBindings("").Controller().Lister(),
+		crbLister:  workload.RBAC.ClusterRoleBindings("").Controller().Lister(),
+		crLister:   workload.RBAC.ClusterRoles("").Controller().Lister(),
+		pspLister:  workload.Extensions.PodSecurityPolicies("").Controller().Lister(),
 	}
 	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.sync)
 }
 
 type roleHandler struct {
-	Namespaces                 v1.NamespaceInterface
-	PodSecurityPolicies        v1beta1.PodSecurityPolicyInterface
-	RoleTemplates              v3.RoleTemplateInterface
-	PodSecurityPolicyTemplates v3.PodSecurityPolicyTemplateInterface
-	RBAC                       rbacv1client.RbacV1Interface
+	workload   *config.ClusterContext
+	rtLister   v3.RoleTemplateLister
+	psptLister v3.PodSecurityPolicyTemplateLister
+	nsLister   typescorev1.NamespaceLister
+	crLister   typesrbacv1.ClusterRoleLister
+	crbLister  typesrbacv1.ClusterRoleBindingLister
+	rbLister   typesrbacv1.RoleBindingLister
+	pspLister  typesextv1beta1.PodSecurityPolicyLister
 }
 
 func getAction(binding *v3.ProjectRoleTemplateBinding) string {
@@ -74,20 +80,18 @@ func (r *roleHandler) sync(key string, binding *v3.ProjectRoleTemplateBinding) e
 }
 
 func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding) error {
-	rt, err := r.RoleTemplates.Get(binding.RoleTemplateName, metav1.GetOptions{})
+	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't get role template %v", binding.RoleTemplateName)
 	}
 
 	// Get namespaces belonging to project
 	set := labels.Set(map[string]string{projectIDLabel: binding.ProjectName})
-	namespaces, err := r.Namespaces.List(metav1.ListOptions{
-		LabelSelector: set.AsSelector().String(),
-	})
+	namespaces, err := r.nsLister.List("", set.AsSelector())
 	if err != nil {
 		return errors.Wrapf(err, "couldn't list namespaces with selector %s", set.AsSelector())
 	}
-	if len(namespaces.Items) == 0 {
+	if len(namespaces) == 0 {
 		return nil
 	}
 
@@ -107,7 +111,7 @@ func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding)
 	}
 
 	// TODO is .Items the complete list or is there potential pagination to deal with?
-	for _, ns := range namespaces.Items {
+	for _, ns := range namespaces {
 		if err := r.ensureBinding(ns.Name, rt.Name, binding); err != nil {
 			return errors.Wrapf(err, "couldn't ensure binding %v %v in %v", rt.Name, binding.Subject.Name, ns.Name)
 		}
@@ -118,7 +122,7 @@ func (r *roleHandler) create(key string, binding *v3.ProjectRoleTemplateBinding)
 
 func (r *roleHandler) gatherRolesAndPSPs(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate, pspTemplates map[string]*v3.PodSecurityPolicyTemplate) error {
 	for _, pspName := range rt.PodSecurityPolicyTemplateNames {
-		pspTemplate, err := r.PodSecurityPolicyTemplates.Get(pspName, metav1.GetOptions{})
+		pspTemplate, err := r.psptLister.Get("", pspName)
 		if err != nil {
 			logrus.Warnf("Couldn't find PodSecurityPolicyTemplate %v. Skipping. Error: %v", pspName, err)
 			continue
@@ -129,7 +133,7 @@ func (r *roleHandler) gatherRolesAndPSPs(rt *v3.RoleTemplate, roleTemplates map[
 	roleTemplates[rt.Name] = rt
 
 	for _, rtName := range rt.RoleTemplateNames {
-		subRT, err := r.RoleTemplates.Get(rtName, metav1.GetOptions{})
+		subRT, err := r.rtLister.Get("", rtName)
 		if err != nil {
 			return errors.Wrapf(err, "couldn't get RoleTemplate %s", rtName)
 		}
@@ -142,9 +146,10 @@ func (r *roleHandler) gatherRolesAndPSPs(rt *v3.RoleTemplate, roleTemplates map[
 }
 
 func (r *roleHandler) ensurePSPs(pspTemplates map[string]*v3.PodSecurityPolicyTemplate) error {
-	pspCli := r.PodSecurityPolicies
+	pspCli := r.workload.Extensions.PodSecurityPolicies("")
 	for name, pspTemplate := range pspTemplates {
-		if psp, err := pspCli.Get(name, metav1.GetOptions{}); err == nil {
+		if psp, err := r.pspLister.Get("", name); err == nil {
+			psp = psp.DeepCopy()
 			psp.Spec = pspTemplate.Spec
 			if _, err := pspCli.Update(psp); err != nil {
 				return errors.Wrapf(err, "couldn't update PodSecurityPolicy %v", name)
@@ -166,14 +171,14 @@ func (r *roleHandler) ensurePSPs(pspTemplates map[string]*v3.PodSecurityPolicyTe
 }
 
 func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
-	roleCli := r.RBAC.ClusterRoles()
+	roleCli := r.workload.K8sClient.RbacV1().ClusterRoles()
 	for _, rt := range rts {
 		if rt.Builtin {
 			// TODO assert the role exists and log an error if it doesnt.
 			continue
 		}
 
-		if role, err := roleCli.Get(rt.Name, metav1.GetOptions{}); err == nil {
+		if role, err := r.crLister.Get("", rt.Name); err == nil {
 			// TODO potentially check a version so that we don't do unnecessary updates
 			role.Rules = rt.Rules
 			_, err := roleCli.Update(role)
@@ -197,9 +202,9 @@ func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
 }
 
 func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
-	bindingCli := r.RBAC.RoleBindings(ns)
+	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
 	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, binding.Subject.Kind, binding.Subject.Name))
-	_, err := bindingCli.Get(bindingName, metav1.GetOptions{})
+	_, err := r.rbLister.Get(ns, bindingName)
 	if err == nil {
 		return nil
 	}

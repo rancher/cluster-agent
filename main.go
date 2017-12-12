@@ -1,9 +1,8 @@
 package main
 
 import (
-	"os"
-
 	"context"
+	"os"
 
 	controller "github.com/rancher/cluster-agent/controller"
 	"github.com/rancher/types/config"
