@@ -55,13 +55,13 @@ func (s *StatSyncer) syncClusterNodeResources() error {
 	cluster, err := s.getCluster()
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logrus.Info("Skip syncing node resources, cluster [%s] not found", s.clusterName)
+			logrus.Infof("Skip syncing node resources, cluster [%s] not found", s.clusterName)
 			return nil
 		}
 		return err
 	}
 	if cluster == nil {
-		logrus.Info("Skip syncing node resources, cluster [%s] deleted", s.clusterName)
+		logrus.Infof("Skip syncing node resources, cluster [%s] deleted", s.clusterName)
 		return nil
 	}
 	if !utils.IsClusterProvisioned(cluster) {
