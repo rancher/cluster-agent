@@ -44,7 +44,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 			Name: pspName,
 		},
 		Spec: extv1beta1.PodSecurityPolicySpec{
-			AllowedHostPaths:       []extv1beta1.AllowedHostPath{{"/tmp"}},
+			AllowedHostPaths:       []extv1beta1.AllowedHostPath{{PathPrefix: "/tmp"}},
 			ReadOnlyRootFilesystem: true,
 			SELinux:                extv1beta1.SELinuxStrategyOptions{Rule: extv1beta1.SELinuxStrategyRunAsAny},
 			RunAsUser:              extv1beta1.RunAsUserStrategyOptions{Rule: extv1beta1.RunAsUserStrategyMustRunAsNonRoot},
@@ -55,7 +55,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Assert(pspTemplate.Name, check.Equals, pspName)
 	c.Assert(pspTemplate.Spec.ReadOnlyRootFilesystem, check.Equals, true)
-	c.Assert(pspTemplate.Spec.AllowedHostPaths, check.DeepEquals, []extv1beta1.AllowedHostPath{{"/tmp"}})
+	c.Assert(pspTemplate.Spec.AllowedHostPaths, check.DeepEquals, []extv1beta1.AllowedHostPath{{PathPrefix: "/tmp"}})
 
 	// create RoleTemplate (this one will be referenced by the next one)
 	podRORoleTemplateName := "test-subrt-1"
@@ -63,7 +63,13 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// TODO This will break when we need to handle updating a subordinate role
 	rt, err := s.createRoleTemplate(podRORoleTemplateName,
 		[]rbacv1.PolicyRule{
-			{[]string{"get", "list", "watch"}, []string{""}, []string{"pods"}, []string{}, []string{}},
+			{
+				Verbs:           []string{"get", "list", "watch"},
+				APIGroups:       []string{""},
+				Resources:       []string{"pods"},
+				ResourceNames:   []string{},
+				NonResourceURLs: []string{},
+			},
 		}, []string{}, []string{pspName}, false, c)
 
 	// create RoleTemplate that user will be bound to
@@ -71,9 +77,14 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	s.clusterClient.RbacV1().ClusterRoles().Delete(rtName, &metav1.DeleteOptions{})
 	rt2, err := s.createRoleTemplate(rtName,
 		[]rbacv1.PolicyRule{
-			{[]string{"get", "list", "watch"}, []string{"apps", "extensions"}, []string{"deployments"}, []string{}, []string{}},
-		},
-		[]string{podRORoleTemplateName}, []string{}, false, c)
+			{
+				Verbs:           []string{"get", "list", "watch"},
+				APIGroups:       []string{"apps", "extensions"},
+				Resources:       []string{"deployments"},
+				ResourceNames:   []string{},
+				NonResourceURLs: []string{},
+			},
+		}, []string{podRORoleTemplateName}, []string{}, false, c)
 
 	// create namespace and watchers for resources in that namespace
 	ns := setupNS("test-authz-ns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)

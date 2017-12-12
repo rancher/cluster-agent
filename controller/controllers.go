@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+
 	"github.com/rancher/cluster-agent/controller/authz"
 	"github.com/rancher/cluster-agent/controller/eventssyncer"
 	"github.com/rancher/cluster-agent/controller/healthsyncer"
@@ -9,10 +11,10 @@ import (
 	"github.com/rancher/types/config"
 )
 
-func Register(workload *config.ClusterContext) {
-	nodesyncer.Register(workload)
-	healthsyncer.Register(workload)
-	authz.Register(workload)
-	statsyncer.Register(workload)
-	eventssyncer.Register(workload)
+func Register(ctx context.Context, cluster *config.ClusterContext) {
+	nodesyncer.Register(cluster)
+	healthsyncer.Register(ctx, cluster)
+	authz.Register(cluster)
+	statsyncer.Register(ctx, cluster)
+	eventssyncer.Register(cluster)
 }

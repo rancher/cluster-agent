@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 
+	"context"
+
 	controller "github.com/rancher/cluster-agent/controller"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
@@ -53,11 +55,12 @@ func runControllers(clusterManagerCfg string, clusterCfg string, clusterName str
 		return err
 	}
 
-	workload, err := config.NewClusterContext(*clusterManagementKubeConfig, *clusterKubeConfig, clusterName)
+	cluster, err := config.NewClusterContext(*clusterManagementKubeConfig, *clusterKubeConfig, clusterName)
 	if err != nil {
 		return err
 	}
 
-	controller.Register(workload)
-	return workload.StartAndWait()
+	ctx := context.Background()
+	controller.Register(ctx, cluster)
+	return cluster.StartAndWait(ctx)
 }

@@ -1,6 +1,7 @@
 package statsyncer
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -29,20 +30,20 @@ type StatSyncer struct {
 	Nodes        corev1.NodeInterface
 }
 
-func Register(workload *config.ClusterContext) {
+func Register(ctx context.Context, cluster *config.ClusterContext) {
 	s := &StatSyncer{
-		clusterName:  workload.ClusterName,
-		Clusters:     workload.Management.Management.Clusters(""),
-		ClusterNodes: workload.Management.Management.Machines(""),
-		Pods:         workload.K8sClient.CoreV1().Pods(""),
-		Nodes:        workload.K8sClient.CoreV1().Nodes(),
+		clusterName:  cluster.ClusterName,
+		Clusters:     cluster.Management.Management.Clusters(""),
+		ClusterNodes: cluster.Management.Management.Machines(""),
+		Pods:         cluster.K8sClient.CoreV1().Pods(""),
+		Nodes:        cluster.K8sClient.CoreV1().Nodes(),
 	}
 
-	go s.syncResources(syncInterval)
+	go s.syncResources(ctx, syncInterval)
 }
 
-func (s *StatSyncer) syncResources(syncInterval time.Duration) {
-	for range time.Tick(syncInterval) {
+func (s *StatSyncer) syncResources(ctx context.Context, syncInterval time.Duration) {
+	for range utils.TickerContext(ctx, syncInterval) {
 		err := s.syncClusterNodeResources()
 		logrus.Info("Syncing allocated resources")
 		if err != nil {
