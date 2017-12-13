@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	finalizerName  = "prtbFinalizer"
-	prtbOwnerLabel = "io.cattle.prtb.owner"
+	finalizerName  = "rtbFinalizer"
+	rtbOwnerLabel  = "io.cattle.rtb.owner"
 	projectIDLabel = "io.cattle.field.projectId"
 )
 
@@ -34,6 +34,7 @@ func Register(workload *config.ClusterContext) {
 		pspLister:  workload.Extensions.PodSecurityPolicies("").Controller().Lister(),
 	}
 	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.syncPRTB)
+	workload.Management.Management.ClusterRoleTemplateBindings("").Controller().AddHandler(r.syncCRTB)
 }
 
 type roleHandler struct {
@@ -45,6 +46,76 @@ type roleHandler struct {
 	crbLister  typesrbacv1.ClusterRoleBindingLister
 	rbLister   typesrbacv1.RoleBindingLister
 	pspLister  typesextv1beta1.PodSecurityPolicyLister
+}
+
+func (r *roleHandler) syncCRTB(key string, binding *v3.ClusterRoleTemplateBinding) error {
+	if binding == nil {
+		return nil
+	}
+
+	if binding.DeletionTimestamp != nil {
+		return r.ensureCRTBDelete(key, binding)
+	}
+
+	return r.ensureCRTB(key, binding)
+}
+
+func (r *roleHandler) ensureCRTBDelete(key string, binding *v3.ClusterRoleTemplateBinding) error {
+	if len(binding.ObjectMeta.Finalizers) <= 0 || binding.ObjectMeta.Finalizers[0] != finalizerName {
+		return nil
+	}
+
+	binding = binding.DeepCopy()
+
+	set := labels.Set(map[string]string{rtbOwnerLabel: string(binding.UID)})
+	bindingCli := r.workload.K8sClient.RbacV1().ClusterRoleBindings()
+	rbs, err := r.crbLister.List("", set.AsSelector())
+	if err != nil {
+		return errors.Wrapf(err, "couldn't list clusterrolebindings with selector %s", set.AsSelector())
+	}
+
+	for _, rb := range rbs {
+		if err := bindingCli.Delete(rb.Name, &metav1.DeleteOptions{}); err != nil {
+			return errors.Wrapf(err, "error deleting clusterrolebinding %v", rb.Name)
+		}
+	}
+
+	if r.removeFinalizer(binding) {
+		_, err := r.workload.Management.Management.ClusterRoleTemplateBindings("").Update(binding)
+		return err
+	}
+	return nil
+}
+
+func (r *roleHandler) ensureCRTB(key string, binding *v3.ClusterRoleTemplateBinding) error {
+	binding = binding.DeepCopy()
+	if r.addFinalizer(binding) {
+		if _, err := r.workload.Management.Management.ClusterRoleTemplateBindings("").Update(binding); err != nil {
+			return errors.Wrapf(err, "couldn't set finalizer set on %v", key)
+		}
+	}
+
+	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
+	if err != nil {
+		return errors.Wrapf(err, "couldn't get role template %v", binding.RoleTemplateName)
+	}
+
+	roles := map[string]*v3.RoleTemplate{}
+	if err := r.gatherRoles(rt, roles); err != nil {
+		return err
+	}
+
+	if err := r.ensureRoles(roles); err != nil {
+		return errors.Wrap(err, "couldn't ensure roles")
+	}
+
+	for _, role := range roles {
+		if err := r.ensureClusterBinding(role.Name, binding); err != nil {
+			return errors.Wrapf(err, "couldn't ensure cluster binding %v %v", role.Name, binding.Subject.Name)
+		}
+	}
+
+	return nil
 }
 
 func (r *roleHandler) syncPRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
@@ -60,8 +131,12 @@ func (r *roleHandler) syncPRTB(key string, binding *v3.ProjectRoleTemplateBindin
 }
 
 func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
-	if err := r.addFinalizer(binding); err != nil {
-		return errors.Wrapf(err, "couldn't ensure finalizer set on %v", key)
+	binding = binding.DeepCopy()
+	added := r.addFinalizer(binding)
+	if added {
+		if _, err := r.workload.Management.Management.ProjectRoleTemplateBindings("").Update(binding); err != nil {
+			return errors.Wrapf(err, "couldn't set finalizer set on %v", key)
+		}
 	}
 
 	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
@@ -113,11 +188,8 @@ func (r *roleHandler) ensurePRTBDelete(key string, binding *v3.ProjectRoleTempla
 	if err != nil {
 		return errors.Wrapf(err, "couldn't list namespaces with selector %s", set.AsSelector())
 	}
-	if len(namespaces) == 0 {
-		return nil
-	}
 
-	set = labels.Set(map[string]string{prtbOwnerLabel: string(binding.UID)})
+	set = labels.Set(map[string]string{rtbOwnerLabel: string(binding.UID)})
 	for _, ns := range namespaces {
 		bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns.Name)
 		rbs, err := r.rbLister.List(ns.Name, set.AsSelector())
@@ -132,7 +204,11 @@ func (r *roleHandler) ensurePRTBDelete(key string, binding *v3.ProjectRoleTempla
 		}
 	}
 
-	return r.removeFinalizer(binding)
+	if r.removeFinalizer(binding) {
+		_, err := r.workload.Management.Management.ProjectRoleTemplateBindings("").Update(binding)
+		return err
+	}
+	return nil
 }
 
 func (r *roleHandler) gatherRoles(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate) error {
@@ -151,32 +227,36 @@ func (r *roleHandler) gatherRoles(rt *v3.RoleTemplate, roleTemplates map[string]
 	return nil
 }
 
-func (r *roleHandler) addFinalizer(binding *v3.ProjectRoleTemplateBinding) error {
-	if slice.ContainsString(binding.Finalizers, finalizerName) {
-		return nil
+func (r *roleHandler) addFinalizer(objectMeta metav1.Object) bool {
+	if slice.ContainsString(objectMeta.GetFinalizers(), finalizerName) {
+		return false
 	}
 
-	binding = binding.DeepCopy()
-	binding.Finalizers = append(binding.Finalizers, finalizerName)
-	_, err := r.workload.Management.Management.ProjectRoleTemplateBindings("").Update(binding)
-	return err
+	objectMeta.SetFinalizers(append(objectMeta.GetFinalizers(), finalizerName))
+	return true
 }
 
-func (r *roleHandler) removeFinalizer(binding *v3.ProjectRoleTemplateBinding) error {
-	if !slice.ContainsString(binding.Finalizers, finalizerName) {
-		return nil
+func (r *roleHandler) removeFinalizer(objectMeta metav1.Object) bool {
+	if !slice.ContainsString(objectMeta.GetFinalizers(), finalizerName) {
+		return false
 	}
 
+	changed := false
 	var finalizers []string
-	for _, finalizer := range binding.Finalizers {
+	for _, finalizer := range objectMeta.GetFinalizers() {
 		if finalizer == finalizerName {
+			changed = true
 			continue
 		}
 		finalizers = append(finalizers, finalizer)
 	}
-	binding.ObjectMeta.Finalizers = finalizers
-	_, err := r.workload.Management.Management.ProjectRoleTemplateBindings("").Update(binding)
-	return err
+
+	if changed {
+		objectMeta.SetFinalizers(finalizers)
+	}
+
+	return changed
+
 }
 
 func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
@@ -211,26 +291,47 @@ func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
 	return nil
 }
 
-func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
-	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
-	// TODO dont use name, use a UID
-	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, binding.Subject.Name, binding.UID))
-	_, err := r.rbLister.Get(ns, bindingName)
-	if err == nil {
+func (r *roleHandler) ensureClusterBinding(roleName string, binding *v3.ClusterRoleTemplateBinding) error {
+	bindingCli := r.workload.K8sClient.RbacV1().ClusterRoleBindings()
+	bindingName, objectMeta, subjects, roleRef := bindingParts(roleName, string(binding.UID), binding.Subject)
+	if _, err := r.crbLister.Get("", bindingName); err == nil {
 		return nil
 	}
 
-	_, err = bindingCli.Create(&rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   bindingName,
-			Labels: map[string]string{prtbOwnerLabel: string(binding.UID)},
-		},
-		Subjects: []rbacv1.Subject{binding.Subject},
-		RoleRef: rbacv1.RoleRef{
-			Kind: "ClusterRole",
-			Name: roleName,
-		},
+	_, err := bindingCli.Create(&rbacv1.ClusterRoleBinding{
+		ObjectMeta: objectMeta,
+		Subjects:   subjects,
+		RoleRef:    roleRef,
 	})
 
 	return err
+}
+
+func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
+	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
+	bindingName, objectMeta, subjects, roleRef := bindingParts(roleName, string(binding.UID), binding.Subject)
+	if _, err := r.crbLister.Get("", bindingName); err == nil {
+		return nil
+	}
+
+	_, err := bindingCli.Create(&rbacv1.RoleBinding{
+		ObjectMeta: objectMeta,
+		Subjects:   subjects,
+		RoleRef:    roleRef,
+	})
+	return err
+}
+
+func bindingParts(roleName, parentUID string, subject rbacv1.Subject) (string, metav1.ObjectMeta, []rbacv1.Subject, rbacv1.RoleRef) {
+	bindingName := strings.ToLower(fmt.Sprintf("%v-%v-%v", roleName, subject.Name, parentUID))
+	return bindingName,
+		metav1.ObjectMeta{
+			Name:   bindingName,
+			Labels: map[string]string{rtbOwnerLabel: parentUID},
+		},
+		[]rbacv1.Subject{subject},
+		rbacv1.RoleRef{
+			Kind: "ClusterRole",
+			Name: roleName,
+		}
 }

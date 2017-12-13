@@ -29,12 +29,11 @@ type AuthzSuite struct {
 
 var _ = check.Suite(&AuthzSuite{})
 
-func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
+func (s *AuthzSuite) TestClusterRoleTemplateBindingCreate(c *check.C) {
 	// create project
-	projectName := "test-project-1"
 
 	// create RoleTemplate (this one will be referenced by the next one)
-	podRORoleTemplateName := "test-subrt-1"
+	podRORoleTemplateName := "testsubcrt1"
 	s.clusterClient.RbacV1().ClusterRoles().Delete(podRORoleTemplateName, &metav1.DeleteOptions{})
 	subRT, err := s.createRoleTemplate(podRORoleTemplateName,
 		[]rbacv1.PolicyRule{
@@ -49,7 +48,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// create RoleTemplate that will reference the first one
-	rtName := "test-rt-1"
+	rtName := "testcrt1"
 	s.clusterClient.RbacV1().ClusterRoles().Delete(rtName, &metav1.DeleteOptions{})
 	rt, err := s.createRoleTemplate(rtName,
 		[]rbacv1.PolicyRule{
@@ -63,7 +62,108 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		}, []string{podRORoleTemplateName}, false, c)
 
 	// create namespace and watchers for resources in that namespace
-	ns := setupNS("test-authz-ns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
+	roleWatcher := s.roleWatcher(c)
+	bindingWatcher := s.clusterBindingWatcher(c)
+	defer roleWatcher.Stop()
+	defer bindingWatcher.Stop()
+
+	// create ProjectRoleTemplateBinding
+	subject := rbacv1.Subject{
+		Kind: "User",
+		Name: "user1",
+	}
+	binding := s.createCRTBinding("testcbinding1", subject, rtName, c)
+
+	// assert corresponding role is created with all the rules
+	rolesActual := map[string]*rbacv1.ClusterRole{}
+	rolesExpected := map[string]*authzv1.RoleTemplate{
+		subRT.Name: subRT,
+		rt.Name:    rt,
+	}
+	watchChecker(roleWatcher, c, func(watchEvent watch.Event) bool {
+		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
+			if role, ok := watchEvent.Object.(*rbacv1.ClusterRole); ok {
+				rolesActual[role.Name] = role
+			}
+			if len(rolesActual) == 2 {
+				for name, rt := range rolesExpected {
+					c.Assert(rolesActual[name].Rules, check.DeepEquals, rt.Rules)
+				}
+				return true
+			}
+		}
+		return false
+	})
+
+	// assert binding is created properly
+	newBindings := map[string]bool{}
+	roleNames := []string{rt.Name, subRT.Name}
+	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
+		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
+			if binding, ok := watchEvent.Object.(*rbacv1.ClusterRoleBinding); ok {
+				newBindings[binding.Name] = true
+				c.Assert(binding.Subjects[0].Kind, check.Equals, subject.Kind)
+				c.Assert(binding.Subjects[0].Name, check.Equals, subject.Name)
+				c.Assert(slice.ContainsString(roleNames, binding.RoleRef.Name), check.Equals, true)
+				c.Assert(binding.RoleRef.Kind, check.Equals, "ClusterRole")
+			}
+		}
+		return len(newBindings) == 2
+	})
+
+	// Delete the PRTB
+	bindingWatcher.Stop()
+	bindingWatcher = s.clusterBindingWatcher(c)
+
+	err = s.ctx.Management.Management.ClusterRoleTemplateBindings("").Delete(binding.Name, &metav1.DeleteOptions{})
+	c.Assert(err, check.IsNil)
+
+	deletes := map[string]bool{}
+	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
+		if watch.Deleted == watchEvent.Type {
+			if binding, ok := watchEvent.Object.(*rbacv1.ClusterRoleBinding); ok {
+				deletes[binding.Name] = true
+			}
+		}
+		return len(deletes) == 2
+	})
+}
+
+func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
+	// create project
+	projectName := "testproject1"
+
+	// create RoleTemplate (this one will be referenced by the next one)
+	podRORoleTemplateName := "testsubrt1"
+	s.clusterClient.RbacV1().ClusterRoles().Delete(podRORoleTemplateName, &metav1.DeleteOptions{})
+	subRT, err := s.createRoleTemplate(podRORoleTemplateName,
+		[]rbacv1.PolicyRule{
+			{
+				Verbs:           []string{"get", "list", "watch"},
+				APIGroups:       []string{""},
+				Resources:       []string{"pods"},
+				ResourceNames:   []string{},
+				NonResourceURLs: []string{},
+			},
+		}, []string{}, false, c)
+	c.Assert(err, check.IsNil)
+
+	// create RoleTemplate that will reference the first one
+	rtName := "testrt1"
+	s.clusterClient.RbacV1().ClusterRoles().Delete(rtName, &metav1.DeleteOptions{})
+	rt, err := s.createRoleTemplate(rtName,
+		[]rbacv1.PolicyRule{
+			{
+				Verbs:           []string{"get", "list", "watch"},
+				APIGroups:       []string{"apps", "extensions"},
+				Resources:       []string{"deployments"},
+				ResourceNames:   []string{},
+				NonResourceURLs: []string{},
+			},
+		}, []string{podRORoleTemplateName}, false, c)
+
+	// create namespace and watchers for resources in that namespace
+	ns := setupNS("testauthzns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
 	defer deleteNSOnPass(ns.Name, s.clusterClient.CoreV1().Namespaces(), c)
 	roleWatcher := s.roleWatcher(c)
 	bindingWatcher := s.bindingWatcher(ns.Name, c)
@@ -75,7 +175,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		Kind: "User",
 		Name: "user1",
 	}
-	binding := s.createPRTBinding("test-binding-1", subject, projectName, rtName, c)
+	binding := s.createPRTBinding("testbinding1", subject, projectName, rtName, c)
 
 	// assert corresponding role is created with all the rules
 	rolesActual := map[string]*rbacv1.ClusterRole{}
@@ -134,15 +234,15 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 
 func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	// create project
-	projectName := "test-project-2"
+	projectName := "testproject2"
 
 	// create RoleTemplate that user will be bound to
-	rtName := "test-rt-view-1"
+	rtName := "testrt2"
 	_, err := s.createRoleTemplate(rtName,
 		[]rbacv1.PolicyRule{}, []string{}, true, c)
 
 	// create namespace and watchers for resources in that namespace
-	ns := setupNS("test-authz-builtin-ns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
+	ns := setupNS("testauthzbuiltinns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
 	defer deleteNSOnPass(ns.Name, s.clusterClient.CoreV1().Namespaces(), c)
 	bindingWatcher := s.bindingWatcher(ns.Name, c)
 	defer bindingWatcher.Stop()
@@ -154,9 +254,9 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	// create ProjectRoleTemplateBinding
 	subject := rbacv1.Subject{
 		Kind: "User",
-		Name: "test-user1",
+		Name: "user1",
 	}
-	binding := s.createPRTBinding("test-builtin-binding-1", subject, projectName, rtName, c)
+	binding := s.createPRTBinding("testbuiltin1", subject, projectName, rtName, c)
 
 	// assert binding is created properly
 	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
@@ -188,6 +288,24 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
 		return watch.Deleted == watchEvent.Type
 	})
+}
+
+func (s *AuthzSuite) createCRTBinding(bindingName string, subject rbacv1.Subject, rtName string, c *check.C) *authzv1.ClusterRoleTemplateBinding {
+	binding, err := s.ctx.Management.Management.ClusterRoleTemplateBindings("").Create(&authzv1.ClusterRoleTemplateBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRoleTemplateBinding",
+			APIVersion: "management.cattle.io/v3",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: bindingName,
+		},
+		Subject:          subject,
+		RoleTemplateName: rtName,
+	})
+
+	c.Assert(err, check.IsNil)
+	c.Assert(binding.Name, check.Equals, bindingName)
+	return binding
 }
 
 func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject, projectName string, rtName string, c *check.C) *authzv1.ProjectRoleTemplateBinding {
@@ -236,6 +354,17 @@ func (s *AuthzSuite) pspWatcher(c *check.C) watch.Interface {
 	pspWatch, err := pspClient.Watch(metav1.ListOptions{ResourceVersion: pListMeta.GetResourceVersion()})
 	c.Assert(err, check.IsNil)
 	return pspWatch
+}
+
+func (s *AuthzSuite) clusterBindingWatcher(c *check.C) watch.Interface {
+	bindingClient := s.clusterClient.RbacV1().ClusterRoleBindings()
+	bList, err := bindingClient.List(metav1.ListOptions{})
+	c.Assert(err, check.IsNil)
+	bListMeta, err := meta.ListAccessor(bList)
+	c.Assert(err, check.IsNil)
+	bindingWatch, err := bindingClient.Watch(metav1.ListOptions{ResourceVersion: bListMeta.GetResourceVersion()})
+	c.Assert(err, check.IsNil)
+	return bindingWatch
 }
 
 func (s *AuthzSuite) bindingWatcher(namespace string, c *check.C) watch.Interface {
@@ -293,6 +422,9 @@ func (s *AuthzSuite) setupCRDs(c *check.C) {
 		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
 
 	setupCRD("projectroletemplatebinding", "projectroletemplatebindings", "management.cattle.io", "ProjectRoleTemplateBinding", "v3",
+		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
+
+	setupCRD("clusterroletemplatebinding", "clusterroletemplatebindings", "management.cattle.io", "ClusterRoleTemplateBinding", "v3",
 		apiextensionsv1beta1.ClusterScoped, crdClient, crdWatch, c)
 
 	setupCRD("podsecuritypolicytemplate", "podsecuritypolicytemplates", "management.cattle.io", "PodSecurityPolicyTemplates", "v3",
