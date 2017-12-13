@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rancher/cluster-agent/controller/authz"
+	"github.com/rancher/norman/types/slice"
 	authzv1 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"gopkg.in/check.v1"
@@ -47,7 +48,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		}, []string{}, false, c)
 	c.Assert(err, check.IsNil)
 
-	// create RoleTemplate that user will be bound to
+	// create RoleTemplate that will reference the first one
 	rtName := "test-rt-1"
 	s.clusterClient.RbacV1().ClusterRoles().Delete(rtName, &metav1.DeleteOptions{})
 	rt, err := s.createRoleTemplate(rtName,
@@ -74,7 +75,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		Kind: "User",
 		Name: "user1",
 	}
-	s.createPRTBinding("test-binding-1", subject, projectName, rtName, c)
+	binding := s.createPRTBinding("test-binding-1", subject, projectName, rtName, c)
 
 	// assert corresponding role is created with all the rules
 	rolesActual := map[string]*rbacv1.ClusterRole{}
@@ -98,17 +99,36 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	})
 
 	// assert binding is created properly
+	newBindings := map[string]bool{}
+	roleNames := []string{rt.Name, subRT.Name}
 	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
 		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
 			if binding, ok := watchEvent.Object.(*rbacv1.RoleBinding); ok {
+				newBindings[binding.Name] = true
 				c.Assert(binding.Subjects[0].Kind, check.Equals, subject.Kind)
 				c.Assert(binding.Subjects[0].Name, check.Equals, subject.Name)
-				c.Assert(binding.RoleRef.Name, check.Equals, rtName)
+				c.Assert(slice.ContainsString(roleNames, binding.RoleRef.Name), check.Equals, true)
 				c.Assert(binding.RoleRef.Kind, check.Equals, "ClusterRole")
-				return true
 			}
 		}
-		return false
+		return len(newBindings) == 2
+	})
+
+	// Delete the PRTB
+	bindingWatcher.Stop()
+	bindingWatcher = s.bindingWatcher(ns.Name, c)
+
+	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("").Delete(binding.Name, &metav1.DeleteOptions{})
+	c.Assert(err, check.IsNil)
+
+	deletes := map[string]bool{}
+	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
+		if watch.Deleted == watchEvent.Type {
+			if binding, ok := watchEvent.Object.(*rbacv1.RoleBinding); ok {
+				deletes[binding.Name] = true
+			}
+		}
+		return len(deletes) == 2
 	})
 }
 
@@ -136,7 +156,7 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 		Kind: "User",
 		Name: "test-user1",
 	}
-	s.createPRTBinding("test-builtin-binding-1", subject, projectName, rtName, c)
+	binding := s.createPRTBinding("test-builtin-binding-1", subject, projectName, rtName, c)
 
 	// assert binding is created properly
 	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
@@ -157,6 +177,17 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	c.Assert(err, check.IsNil)
 	rolesPostCount := len(roles.Items)
 	c.Assert(rolesPostCount, check.Equals, rolesPreCount)
+
+	// Delete the PRTB
+	bindingWatcher.Stop()
+	bindingWatcher = s.bindingWatcher(ns.Name, c)
+
+	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("").Delete(binding.Name, &metav1.DeleteOptions{})
+	c.Assert(err, check.IsNil)
+
+	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
+		return watch.Deleted == watchEvent.Type
+	})
 }
 
 func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject, projectName string, rtName string, c *check.C) *authzv1.ProjectRoleTemplateBinding {
