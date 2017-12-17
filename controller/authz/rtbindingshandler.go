@@ -308,7 +308,7 @@ func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
 func (r *roleHandler) ensureClusterBinding(roleName string, binding *v3.ClusterRoleTemplateBinding) error {
 	bindingCli := r.workload.K8sClient.RbacV1().ClusterRoleBindings()
 	bindingName, objectMeta, subjects, roleRef := bindingParts(roleName, string(binding.UID), binding.Subject)
-	if _, err := r.crbLister.Get("", bindingName); err == nil {
+	if c, _ := r.crbLister.Get("", bindingName); c != nil {
 		return nil
 	}
 
@@ -324,7 +324,7 @@ func (r *roleHandler) ensureClusterBinding(roleName string, binding *v3.ClusterR
 func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
 	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
 	bindingName, objectMeta, subjects, roleRef := bindingParts(roleName, string(binding.UID), binding.Subject)
-	if _, err := r.crbLister.Get("", bindingName); err == nil {
+	if b, _ := r.rbLister.Get("", bindingName); b != nil {
 		return nil
 	}
 	_, err := bindingCli.Create(&rbacv1.RoleBinding{
