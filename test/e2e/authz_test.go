@@ -62,9 +62,7 @@ func (s *AuthzSuite) TestClusterRoleTemplateBindingCreate(c *check.C) {
 		}, []string{podRORoleTemplateName}, false, c)
 
 	// create namespace and watchers for resources in that namespace
-	roleWatcher := s.roleWatcher(c)
 	bindingWatcher := s.clusterBindingWatcher(c)
-	defer roleWatcher.Stop()
 	defer bindingWatcher.Stop()
 
 	// create ProjectRoleTemplateBinding
@@ -73,27 +71,6 @@ func (s *AuthzSuite) TestClusterRoleTemplateBindingCreate(c *check.C) {
 		Name: "user1",
 	}
 	binding := s.createCRTBinding("testcbinding1", subject, rtName, c)
-
-	// assert corresponding role is created with all the rules
-	rolesActual := map[string]*rbacv1.ClusterRole{}
-	rolesExpected := map[string]*authzv1.RoleTemplate{
-		subRT.Name: subRT,
-		rt.Name:    rt,
-	}
-	watchChecker(roleWatcher, c, func(watchEvent watch.Event) bool {
-		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
-			if role, ok := watchEvent.Object.(*rbacv1.ClusterRole); ok {
-				rolesActual[role.Name] = role
-			}
-			if len(rolesActual) == 2 {
-				for name, rt := range rolesExpected {
-					c.Assert(rolesActual[name].Rules, check.DeepEquals, rt.Rules)
-				}
-				return true
-			}
-		}
-		return false
-	})
 
 	// assert binding is created properly
 	newBindings := map[string]bool{}
@@ -110,6 +87,25 @@ func (s *AuthzSuite) TestClusterRoleTemplateBindingCreate(c *check.C) {
 		}
 		return len(newBindings) == 2
 	})
+
+	// assert corresponding role is created with all the rules
+	rolesExpected := map[string]*authzv1.RoleTemplate{
+		subRT.Name: subRT,
+		rt.Name:    rt,
+	}
+
+	rolesActual := map[string]rbacv1.ClusterRole{}
+	rs, err := s.clusterClient.RbacV1().ClusterRoles().List(metav1.ListOptions{})
+	c.Assert(err, check.IsNil)
+	for _, r := range rs.Items {
+		if _, ok := rolesExpected[r.Name]; ok {
+			rolesActual[r.Name] = r
+		}
+	}
+	c.Assert(len(rolesActual), check.Equals, 2)
+	for name, rt := range rolesExpected {
+		c.Assert(rolesActual[name].Rules, check.DeepEquals, rt.Rules)
+	}
 
 	// Delete the PRTB
 	bindingWatcher.Stop()
@@ -165,9 +161,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	// create namespace and watchers for resources in that namespace
 	ns := setupNS("testauthzns1", projectName, s.clusterClient.CoreV1().Namespaces(), c)
 	defer deleteNSOnPass(ns.Name, s.clusterClient.CoreV1().Namespaces(), c)
-	roleWatcher := s.roleWatcher(c)
 	bindingWatcher := s.bindingWatcher(ns.Name, c)
-	defer roleWatcher.Stop()
 	defer bindingWatcher.Stop()
 
 	// create ProjectRoleTemplateBinding
@@ -176,27 +170,6 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		Name: "user1",
 	}
 	binding := s.createPRTBinding("testbinding1", subject, projectName, rtName, c)
-
-	// assert corresponding role is created with all the rules
-	rolesActual := map[string]*rbacv1.ClusterRole{}
-	rolesExpected := map[string]*authzv1.RoleTemplate{
-		subRT.Name: subRT,
-		rt.Name:    rt,
-	}
-	watchChecker(roleWatcher, c, func(watchEvent watch.Event) bool {
-		if watch.Modified == watchEvent.Type || watch.Added == watchEvent.Type {
-			if role, ok := watchEvent.Object.(*rbacv1.ClusterRole); ok {
-				rolesActual[role.Name] = role
-			}
-			if len(rolesActual) == 2 {
-				for name, rt := range rolesExpected {
-					c.Assert(rolesActual[name].Rules, check.DeepEquals, rt.Rules)
-				}
-				return true
-			}
-		}
-		return false
-	})
 
 	// assert binding is created properly
 	newBindings := map[string]bool{}
@@ -213,6 +186,25 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 		}
 		return len(newBindings) == 2
 	})
+
+	// assert corresponding role is created with all the rules
+	rolesExpected := map[string]*authzv1.RoleTemplate{
+		subRT.Name: subRT,
+		rt.Name:    rt,
+	}
+
+	rolesActual := map[string]rbacv1.ClusterRole{}
+	rs, err := s.clusterClient.RbacV1().ClusterRoles().List(metav1.ListOptions{})
+	c.Assert(err, check.IsNil)
+	for _, r := range rs.Items {
+		if _, ok := rolesExpected[r.Name]; ok {
+			rolesActual[r.Name] = r
+		}
+	}
+	c.Assert(len(rolesActual), check.Equals, 2)
+	for name, rt := range rolesExpected {
+		c.Assert(rolesActual[name].Rules, check.DeepEquals, rt.Rules)
+	}
 
 	// Delete the PRTB
 	bindingWatcher.Stop()
@@ -398,11 +390,12 @@ func (s *AuthzSuite) SetUpSuite(c *check.C) {
 
 	authz.Register(workload)
 
-	go func() {
-		ctx := context.Background()
-		err := workload.StartAndWait(ctx)
-		c.Assert(err, check.IsNil)
-	}()
+	ctx := context.Background()
+	err := workload.Start(ctx)
+	c.Assert(err, check.IsNil)
+	err = workload.Management.Start(ctx)
+	c.Assert(err, check.IsNil)
+
 }
 
 func (s *AuthzSuite) setupCRDs(c *check.C) {
