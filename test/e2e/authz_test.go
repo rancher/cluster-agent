@@ -210,7 +210,7 @@ func (s *AuthzSuite) TestRoleTemplateBindingCreate(c *check.C) {
 	bindingWatcher.Stop()
 	bindingWatcher = s.bindingWatcher(ns.Name, c)
 
-	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("").Delete(binding.Name, &metav1.DeleteOptions{})
+	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("default").Delete(binding.Name, &metav1.DeleteOptions{})
 	c.Assert(err, check.IsNil)
 
 	deletes := map[string]bool{}
@@ -274,7 +274,7 @@ func (s *AuthzSuite) TestBuiltinRoleTemplateBindingCreate(c *check.C) {
 	bindingWatcher.Stop()
 	bindingWatcher = s.bindingWatcher(ns.Name, c)
 
-	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("").Delete(binding.Name, &metav1.DeleteOptions{})
+	err = s.ctx.Management.Management.ProjectRoleTemplateBindings("default").Delete(binding.Name, &metav1.DeleteOptions{})
 	c.Assert(err, check.IsNil)
 
 	watchChecker(bindingWatcher, c, func(watchEvent watch.Event) bool {
@@ -301,7 +301,7 @@ func (s *AuthzSuite) createCRTBinding(bindingName string, subject rbacv1.Subject
 }
 
 func (s *AuthzSuite) createPRTBinding(bindingName string, subject rbacv1.Subject, projectName string, rtName string, c *check.C) *authzv1.ProjectRoleTemplateBinding {
-	binding, err := s.ctx.Management.Management.ProjectRoleTemplateBindings("").Create(&authzv1.ProjectRoleTemplateBinding{
+	binding, err := s.ctx.Management.Management.ProjectRoleTemplateBindings("default").Create(&authzv1.ProjectRoleTemplateBinding{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ProjectRoleTemplateBinding",
 			APIVersion: "management.cattle.io/v3",
