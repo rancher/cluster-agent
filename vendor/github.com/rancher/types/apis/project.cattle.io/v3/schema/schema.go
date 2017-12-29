@@ -7,6 +7,7 @@ import (
 	"github.com/rancher/types/factory"
 	"github.com/rancher/types/mapper"
 	"k8s.io/api/core/v1"
+	"k8s.io/api/extensions/v1beta1"
 	"k8s.io/kubernetes/staging/src/k8s.io/api/apps/v1beta2"
 )
 
@@ -23,6 +24,11 @@ var (
 	Schemas = factory.Schemas(&Version).
 		// Namespace must be first
 		Init(namespaceTypes).
+		// volume before pod types.  pod types uses volume things, so need to register mapper
+		Init(volumeTypes).
+		Init(ingressTypes).
+		Init(secretTypes).
+		Init(serviceTypes).
 		Init(podTypes).
 		Init(deploymentTypes).
 		Init(statefulSetTypes).
@@ -84,19 +90,19 @@ func statefulSetTypes(schemas *types.Schemas) *types.Schemas {
 				To:   "deploymentStrategy/orderedConfig/partition",
 			},
 			m.SetValue{
-				From:  "updateStrategy/type",
+				Field: "updateStrategy/type",
 				IfEq:  "OnDelete",
 				Value: true,
 				To:    "deploymentStrategy/orderedConfig/onDelete",
 			},
 			m.SetValue{
-				From:  "podManagementPolicy",
+				Field: "podManagementPolicy",
 				IfEq:  "Parallel",
 				Value: "Parallel",
 				To:    "deploymentStrategy/kind",
 			},
 			m.SetValue{
-				From:  "podManagementPolicy",
+				Field: "podManagementPolicy",
 				IfEq:  "OrderedReady",
 				Value: "Ordered",
 				To:    "deploymentStrategy/kind",
@@ -157,7 +163,7 @@ func daemonSet(schemas *types.Schemas) *types.Schemas {
 	return schemas.
 		AddMapperForType(&Version, v1beta2.DaemonSetSpec{},
 			m.SetValue{
-				From:  "updateStrategy/type",
+				Field: "updateStrategy/type",
 				IfEq:  "OnDelete",
 				Value: true,
 				To:    "deploymentStrategy/globalConfig/onDelete",
@@ -263,6 +269,7 @@ func podTypes(schemas *types.Schemas) *types.Schemas {
 			mapper.NamespaceMapper{},
 			mapper.InitContainerMapper{},
 			mapper.SchedulingMapper{},
+			m.Move{From: "tolerations", To: "scheduling/tolerations", DestDefined: true},
 			&m.Embed{Field: "securityContext"},
 			&m.Drop{Field: "serviceAccount"},
 			&m.SliceToMap{
@@ -276,9 +283,6 @@ func podTypes(schemas *types.Schemas) *types.Schemas {
 		).
 		AddMapperForType(&Version, v1.ResourceRequirements{},
 			mapper.PivotMapper{Plural: true},
-		).
-		AddMapperForType(&Version, v1.Pod{},
-			&mapper.NamespaceIDMapper{},
 		).
 		// Must import handlers before Container
 		MustImport(&Version, v1.Capabilities{}, struct {
@@ -303,4 +307,124 @@ func podTypes(schemas *types.Schemas) *types.Schemas {
 		MustImport(&Version, v1.Pod{}, projectOverride{}, struct {
 			WorkloadID string `norman:"type=reference[workload]"`
 		}{})
+}
+
+func serviceTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.
+		Init(addServiceType).
+		Init(addDNSRecord)
+}
+
+func addServiceType(schemas *types.Schemas) *types.Schemas {
+	return schemas.AddSchema(*factory.Schemas(&Version).
+		Init(addServiceOrDNSRecord(false)).
+		Schema(&Version, "service"))
+}
+
+func addDNSRecord(schemas *types.Schemas) *types.Schemas {
+	return schemas.
+		Init(addServiceOrDNSRecord(true))
+}
+
+func addServiceOrDNSRecord(dns bool) types.SchemasInitFunc {
+	return func(schemas *types.Schemas) *types.Schemas {
+		if dns {
+			schemas = schemas.
+				TypeName("dnsRecord", v1.Service{})
+		}
+
+		schemas = schemas.
+			AddMapperForType(&Version, v1.ServiceSpec{},
+				&m.Move{From: "externalName", To: "hostname"},
+				&ServiceSpecMapper{},
+				&m.Move{From: "type", To: "serviceKind"},
+				&m.SetValue{
+					Field: "clusterIP",
+					IfEq:  "None",
+					Value: nil,
+				},
+				&m.Move{From: "clusterIP", To: "clusterIp"},
+			).
+			AddMapperForType(&Version, v1.Service{},
+				&m.Drop{Field: "status"},
+				&m.LabelField{Field: "workloadId"},
+				&m.AnnotationField{Field: "ipAddresses", List: true},
+				&m.AnnotationField{Field: "targetWorkloadIds", List: true},
+				&m.AnnotationField{Field: "targetDnsRecordIds", List: true},
+				&m.Move{From: "serviceKind", To: "kind"},
+			)
+
+		if dns {
+			schemas = schemas.
+				AddMapperForType(&Version, v1.Service{},
+					&m.Drop{Field: "kind"},
+					&m.Drop{Field: "externalIPs"},
+					&m.Drop{Field: "externalTrafficPolicy"},
+					&m.Drop{Field: "healthCheckNodePort"},
+					&m.Drop{Field: "loadBalancerIP"},
+					&m.Drop{Field: "loadBalancerSourceRanges"},
+					&m.Drop{Field: "ports"},
+					&m.Drop{Field: "publishNotReadyAddresses"},
+					&m.Drop{Field: "sessionAffinity"},
+					&m.Drop{Field: "sessionAffinityConfig"},
+				)
+		}
+
+		return schemas.MustImportAndCustomize(&Version, v1.Service{}, func(schema *types.Schema) {
+			if dns {
+				schema.CodeName = "DNSRecord"
+				schema.MustCustomizeField("clusterIp", func(f types.Field) types.Field {
+					f.Create = false
+					f.Update = false
+					return f
+				})
+			}
+		}, projectOverride{}, struct {
+			IPAddresses        []string `json:"ipAddresses"`
+			WorkloadID         string   `json:"workloadId" norman:"type=reference[workload],nocreate,noupdate"`
+			TargetWorkloadIDs  string   `json:"targetWorkloadIds" norman:"type=array[reference[workload]]"`
+			TargetDNSRecordIDs string   `json:"targetDnsRecordIds" norman:"type=array[reference[dnsRecord]]"`
+		}{})
+	}
+}
+
+func ingressTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.
+		AddMapperForType(&Version, v1beta1.HTTPIngressRuleValue{},
+			&m.SliceToMap{Field: "paths", Key: "path"},
+		).
+		AddMapperForType(&Version, v1beta1.HTTPIngressPath{},
+			&m.Embed{Field: "backend"},
+		).
+		AddMapperForType(&Version, v1beta1.IngressRule{},
+			&m.Embed{Field: "http"},
+		).
+		AddMapperForType(&Version, v1beta1.Ingress{},
+			&m.Move{From: "backend", To: "defaultBackend"},
+		).
+		AddMapperForType(&Version, v1beta1.IngressTLS{},
+			&m.Move{From: "secretName", To: "certificateName"},
+		).
+		AddMapperForType(&Version, v1beta1.IngressBackend{},
+			&m.Move{From: "servicePort", To: "targetPort"},
+		).
+		MustImport(&Version, v1beta1.IngressBackend{}, struct {
+			WorkloadIDs string `json:"workloadIds" norman:"type=array[reference[workload]]"`
+			ServiceName string `norman:"type=reference[service]"`
+		}{}).
+		MustImportAndCustomize(&Version, v1beta1.IngressRule{}, func(schema *types.Schema) {
+			schema.MustCustomizeField("paths", func(f types.Field) types.Field {
+				f.Type = "map[ingressBackend]"
+				return f
+			})
+		}).
+		MustImport(&Version, v1beta1.IngressTLS{}, struct {
+			SecretName string `norman:"type=reference[certificate]"`
+		}{}).
+		MustImport(&Version, v1beta1.Ingress{}, projectOverride{})
+}
+
+func volumeTypes(schemas *types.Schemas) *types.Schemas {
+	return schemas.
+		MustImport(&Version, v1.PersistentVolumeClaim{}, projectOverride{})
 }

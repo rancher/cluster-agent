@@ -12,6 +12,7 @@ const (
 	ReplicaSetFieldBatchSize                     = "batchSize"
 	ReplicaSetFieldContainers                    = "containers"
 	ReplicaSetFieldCreated                       = "created"
+	ReplicaSetFieldCreatorID                     = "creatorId"
 	ReplicaSetFieldDNSPolicy                     = "dnsPolicy"
 	ReplicaSetFieldDeploymentStrategy            = "deploymentStrategy"
 	ReplicaSetFieldFinalizers                    = "finalizers"
@@ -32,7 +33,6 @@ const (
 	ReplicaSetFieldProjectID                     = "projectId"
 	ReplicaSetFieldPullSecrets                   = "pullSecrets"
 	ReplicaSetFieldRemoved                       = "removed"
-	ReplicaSetFieldResourcePath                  = "resourcePath"
 	ReplicaSetFieldRestart                       = "restart"
 	ReplicaSetFieldRunAsNonRoot                  = "runAsNonRoot"
 	ReplicaSetFieldScale                         = "scale"
@@ -43,7 +43,6 @@ const (
 	ReplicaSetFieldStatus                        = "status"
 	ReplicaSetFieldSubdomain                     = "subdomain"
 	ReplicaSetFieldTerminationGracePeriodSeconds = "terminationGracePeriodSeconds"
-	ReplicaSetFieldTolerations                   = "tolerations"
 	ReplicaSetFieldTransitioning                 = "transitioning"
 	ReplicaSetFieldTransitioningMessage          = "transitioningMessage"
 	ReplicaSetFieldUid                           = "uid"
@@ -61,6 +60,7 @@ type ReplicaSet struct {
 	BatchSize                     string                 `json:"batchSize,omitempty"`
 	Containers                    []Container            `json:"containers,omitempty"`
 	Created                       string                 `json:"created,omitempty"`
+	CreatorID                     string                 `json:"creatorId,omitempty"`
 	DNSPolicy                     string                 `json:"dnsPolicy,omitempty"`
 	DeploymentStrategy            *DeployStrategy        `json:"deploymentStrategy,omitempty"`
 	Finalizers                    []string               `json:"finalizers,omitempty"`
@@ -81,7 +81,6 @@ type ReplicaSet struct {
 	ProjectID                     string                 `json:"projectId,omitempty"`
 	PullSecrets                   []LocalObjectReference `json:"pullSecrets,omitempty"`
 	Removed                       string                 `json:"removed,omitempty"`
-	ResourcePath                  string                 `json:"resourcePath,omitempty"`
 	Restart                       string                 `json:"restart,omitempty"`
 	RunAsNonRoot                  *bool                  `json:"runAsNonRoot,omitempty"`
 	Scale                         *int64                 `json:"scale,omitempty"`
@@ -92,7 +91,6 @@ type ReplicaSet struct {
 	Status                        *ReplicaSetStatus      `json:"status,omitempty"`
 	Subdomain                     string                 `json:"subdomain,omitempty"`
 	TerminationGracePeriodSeconds *int64                 `json:"terminationGracePeriodSeconds,omitempty"`
-	Tolerations                   []Toleration           `json:"tolerations,omitempty"`
 	Transitioning                 string                 `json:"transitioning,omitempty"`
 	TransitioningMessage          string                 `json:"transitioningMessage,omitempty"`
 	Uid                           *int64                 `json:"uid,omitempty"`

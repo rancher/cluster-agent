@@ -4,6 +4,7 @@ import (
 	"github.com/rancher/norman/types"
 	m "github.com/rancher/norman/types/mapper"
 	"github.com/rancher/types/apis/project.cattle.io/v3"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -58,16 +59,15 @@ type ResourceRequest struct {
 }
 
 type Scheduling struct {
-	AntiAffinity      string
 	Node              *NodeScheduling
-	Tolerate          []string
+	Tolerate          []v1.Toleration
 	Scheduler         string
 	Priority          *int64
 	PriorityClassName string
 }
 
 type NodeScheduling struct {
-	Name       string
+	NodeName   string `json:"nodeName" norman:"type=reference[node]"`
 	RequireAll []string
 	RequireAny []string
 	Preferred  []string
@@ -79,5 +79,12 @@ type deployOverride struct {
 
 type projectOverride struct {
 	types.Namespaced
-	ProjectID string `norman:"type=reference[/v3/schemas/project]"`
+	ProjectID string `norman:"type=reference[/v3/schemas/project],noupdate"`
+}
+
+type Target struct {
+	Addresses         []string `json:"addresses"`
+	NotReadyAddresses []string `json:"notReadyAddresses"`
+	Port              *int32   `json:"port"`
+	Protocol          string   `json:"protocol" norman:"type=enum,options=TCP|UDP"`
 }

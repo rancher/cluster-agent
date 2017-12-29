@@ -9,8 +9,10 @@ import (
 )
 
 type AnnotationField struct {
-	Field  string
-	Object bool
+	Field            string
+	Object           bool
+	List             bool
+	IgnoreDefinition bool
 }
 
 func (e AnnotationField) FromInternal(data map[string]interface{}) {
@@ -23,6 +25,12 @@ func (e AnnotationField) FromInternal(data map[string]interface{}) {
 				v = data
 			}
 		}
+		if e.List {
+			var data []interface{}
+			if err := json.Unmarshal([]byte(convert.ToString(v)), &data); err == nil {
+				v = data
+			}
+		}
 
 		data[e.Field] = v
 	}
@@ -31,15 +39,19 @@ func (e AnnotationField) FromInternal(data map[string]interface{}) {
 func (e AnnotationField) ToInternal(data map[string]interface{}) {
 	v, ok := data[e.Field]
 	if ok {
-		if e.Object {
+		if e.Object || e.List {
 			if bytes, err := json.Marshal(v); err == nil {
 				v = string(bytes)
 			}
 		}
-		values.PutValue(data, v, "annotations", "field.cattle.io/"+e.Field)
+		values.PutValue(data, convert.ToString(v), "annotations", "field.cattle.io/"+e.Field)
 	}
+	values.RemoveValue(data, e.Field)
 }
 
 func (e AnnotationField) ModifySchema(schema *types.Schema, schemas *types.Schemas) error {
-	return validateField(e.Field, schema)
+	if e.IgnoreDefinition {
+		return nil
+	}
+	return ValidateField(e.Field, schema)
 }
