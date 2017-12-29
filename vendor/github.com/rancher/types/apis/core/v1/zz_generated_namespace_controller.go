@@ -54,9 +54,11 @@ type NamespaceController interface {
 type NamespaceInterface interface {
 	ObjectClient() *clientbase.ObjectClient
 	Create(*v1.Namespace) (*v1.Namespace, error)
+	GetNamespace(name, namespace string, opts metav1.GetOptions) (*v1.Namespace, error)
 	Get(name string, opts metav1.GetOptions) (*v1.Namespace, error)
 	Update(*v1.Namespace) (*v1.Namespace, error)
 	Delete(name string, options *metav1.DeleteOptions) error
+	DeleteNamespace(name, namespace string, options *metav1.DeleteOptions) error
 	List(opts metav1.ListOptions) (*NamespaceList, error)
 	Watch(opts metav1.ListOptions) (watch.Interface, error)
 	DeleteCollection(deleteOpts *metav1.DeleteOptions, listOpts metav1.ListOptions) error
@@ -173,6 +175,11 @@ func (s *namespaceClient) Get(name string, opts metav1.GetOptions) (*v1.Namespac
 	return obj.(*v1.Namespace), err
 }
 
+func (s *namespaceClient) GetNamespace(name, namespace string, opts metav1.GetOptions) (*v1.Namespace, error) {
+	obj, err := s.objectClient.GetNamespace(name, namespace, opts)
+	return obj.(*v1.Namespace), err
+}
+
 func (s *namespaceClient) Update(o *v1.Namespace) (*v1.Namespace, error) {
 	obj, err := s.objectClient.Update(o.Name, o)
 	return obj.(*v1.Namespace), err
@@ -182,6 +189,10 @@ func (s *namespaceClient) Delete(name string, options *metav1.DeleteOptions) err
 	return s.objectClient.Delete(name, options)
 }
 
+func (s *namespaceClient) DeleteNamespace(name, namespace string, options *metav1.DeleteOptions) error {
+	return s.objectClient.DeleteNamespace(name, namespace, options)
+}
+
 func (s *namespaceClient) List(opts metav1.ListOptions) (*NamespaceList, error) {
 	obj, err := s.objectClient.List(opts)
 	return obj.(*NamespaceList), err
@@ -189,6 +200,12 @@ func (s *namespaceClient) List(opts metav1.ListOptions) (*NamespaceList, error) 
 
 func (s *namespaceClient) Watch(opts metav1.ListOptions) (watch.Interface, error) {
 	return s.objectClient.Watch(opts)
+}
+
+// Patch applies the patch and returns the patched deployment.
+func (s *namespaceClient) Patch(o *v1.Namespace, data []byte, subresources ...string) (*v1.Namespace, error) {
+	obj, err := s.objectClient.Patch(o.Name, o, data, subresources...)
+	return obj.(*v1.Namespace), err
 }
 
 func (s *namespaceClient) DeleteCollection(deleteOpts *metav1.DeleteOptions, listOpts metav1.ListOptions) error {

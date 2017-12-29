@@ -12,6 +12,7 @@ const (
 	ReplicationControllerFieldBatchSize                     = "batchSize"
 	ReplicationControllerFieldContainers                    = "containers"
 	ReplicationControllerFieldCreated                       = "created"
+	ReplicationControllerFieldCreatorID                     = "creatorId"
 	ReplicationControllerFieldDNSPolicy                     = "dnsPolicy"
 	ReplicationControllerFieldDeploymentStrategy            = "deploymentStrategy"
 	ReplicationControllerFieldFinalizers                    = "finalizers"
@@ -32,7 +33,6 @@ const (
 	ReplicationControllerFieldProjectID                     = "projectId"
 	ReplicationControllerFieldPullSecrets                   = "pullSecrets"
 	ReplicationControllerFieldRemoved                       = "removed"
-	ReplicationControllerFieldResourcePath                  = "resourcePath"
 	ReplicationControllerFieldRestart                       = "restart"
 	ReplicationControllerFieldRunAsNonRoot                  = "runAsNonRoot"
 	ReplicationControllerFieldScale                         = "scale"
@@ -43,7 +43,6 @@ const (
 	ReplicationControllerFieldStatus                        = "status"
 	ReplicationControllerFieldSubdomain                     = "subdomain"
 	ReplicationControllerFieldTerminationGracePeriodSeconds = "terminationGracePeriodSeconds"
-	ReplicationControllerFieldTolerations                   = "tolerations"
 	ReplicationControllerFieldTransitioning                 = "transitioning"
 	ReplicationControllerFieldTransitioningMessage          = "transitioningMessage"
 	ReplicationControllerFieldUid                           = "uid"
@@ -61,6 +60,7 @@ type ReplicationController struct {
 	BatchSize                     string                       `json:"batchSize,omitempty"`
 	Containers                    []Container                  `json:"containers,omitempty"`
 	Created                       string                       `json:"created,omitempty"`
+	CreatorID                     string                       `json:"creatorId,omitempty"`
 	DNSPolicy                     string                       `json:"dnsPolicy,omitempty"`
 	DeploymentStrategy            *DeployStrategy              `json:"deploymentStrategy,omitempty"`
 	Finalizers                    []string                     `json:"finalizers,omitempty"`
@@ -81,7 +81,6 @@ type ReplicationController struct {
 	ProjectID                     string                       `json:"projectId,omitempty"`
 	PullSecrets                   []LocalObjectReference       `json:"pullSecrets,omitempty"`
 	Removed                       string                       `json:"removed,omitempty"`
-	ResourcePath                  string                       `json:"resourcePath,omitempty"`
 	Restart                       string                       `json:"restart,omitempty"`
 	RunAsNonRoot                  *bool                        `json:"runAsNonRoot,omitempty"`
 	Scale                         *int64                       `json:"scale,omitempty"`
@@ -92,7 +91,6 @@ type ReplicationController struct {
 	Status                        *ReplicationControllerStatus `json:"status,omitempty"`
 	Subdomain                     string                       `json:"subdomain,omitempty"`
 	TerminationGracePeriodSeconds *int64                       `json:"terminationGracePeriodSeconds,omitempty"`
-	Tolerations                   []Toleration                 `json:"tolerations,omitempty"`
 	Transitioning                 string                       `json:"transitioning,omitempty"`
 	TransitioningMessage          string                       `json:"transitioningMessage,omitempty"`
 	Uid                           *int64                       `json:"uid,omitempty"`

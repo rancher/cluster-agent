@@ -55,9 +55,11 @@ type DeploymentController interface {
 type DeploymentInterface interface {
 	ObjectClient() *clientbase.ObjectClient
 	Create(*v1beta2.Deployment) (*v1beta2.Deployment, error)
+	GetNamespace(name, namespace string, opts metav1.GetOptions) (*v1beta2.Deployment, error)
 	Get(name string, opts metav1.GetOptions) (*v1beta2.Deployment, error)
 	Update(*v1beta2.Deployment) (*v1beta2.Deployment, error)
 	Delete(name string, options *metav1.DeleteOptions) error
+	DeleteNamespace(name, namespace string, options *metav1.DeleteOptions) error
 	List(opts metav1.ListOptions) (*DeploymentList, error)
 	Watch(opts metav1.ListOptions) (watch.Interface, error)
 	DeleteCollection(deleteOpts *metav1.DeleteOptions, listOpts metav1.ListOptions) error
@@ -174,6 +176,11 @@ func (s *deploymentClient) Get(name string, opts metav1.GetOptions) (*v1beta2.De
 	return obj.(*v1beta2.Deployment), err
 }
 
+func (s *deploymentClient) GetNamespace(name, namespace string, opts metav1.GetOptions) (*v1beta2.Deployment, error) {
+	obj, err := s.objectClient.GetNamespace(name, namespace, opts)
+	return obj.(*v1beta2.Deployment), err
+}
+
 func (s *deploymentClient) Update(o *v1beta2.Deployment) (*v1beta2.Deployment, error) {
 	obj, err := s.objectClient.Update(o.Name, o)
 	return obj.(*v1beta2.Deployment), err
@@ -183,6 +190,10 @@ func (s *deploymentClient) Delete(name string, options *metav1.DeleteOptions) er
 	return s.objectClient.Delete(name, options)
 }
 
+func (s *deploymentClient) DeleteNamespace(name, namespace string, options *metav1.DeleteOptions) error {
+	return s.objectClient.DeleteNamespace(name, namespace, options)
+}
+
 func (s *deploymentClient) List(opts metav1.ListOptions) (*DeploymentList, error) {
 	obj, err := s.objectClient.List(opts)
 	return obj.(*DeploymentList), err
@@ -190,6 +201,12 @@ func (s *deploymentClient) List(opts metav1.ListOptions) (*DeploymentList, error
 
 func (s *deploymentClient) Watch(opts metav1.ListOptions) (watch.Interface, error) {
 	return s.objectClient.Watch(opts)
+}
+
+// Patch applies the patch and returns the patched deployment.
+func (s *deploymentClient) Patch(o *v1beta2.Deployment, data []byte, subresources ...string) (*v1beta2.Deployment, error) {
+	obj, err := s.objectClient.Patch(o.Name, o, data, subresources...)
+	return obj.(*v1beta2.Deployment), err
 }
 
 func (s *deploymentClient) DeleteCollection(deleteOpts *metav1.DeleteOptions, listOpts metav1.ListOptions) error {

@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 
+	"github.com/rancher/norman/types/convert"
 	"github.com/rancher/norman/types/definition"
 )
 
@@ -37,6 +38,7 @@ func (m Mappers) ModifySchema(schema *Schema, schemas *Schemas) error {
 
 type typeMapper struct {
 	Mappers         []Mapper
+	root            bool
 	typeName        string
 	subSchemas      map[string]*Schema
 	subArraySchemas map[string]*Schema
@@ -64,10 +66,11 @@ func (t *typeMapper) FromInternal(data map[string]interface{}) {
 
 	Mappers(t.Mappers).FromInternal(data)
 
-	if data != nil {
-		if _, ok := data["type"]; !ok {
-			data["type"] = t.typeName
-		}
+	if _, ok := data["type"]; !ok && data != nil {
+		data["type"] = t.typeName
+	}
+
+	if data != nil && t.root {
 		name, _ := data["name"].(string)
 		namespace, _ := data["namespaceId"].(string)
 
@@ -90,9 +93,9 @@ func (t *typeMapper) ToInternal(data map[string]interface{}) {
 		if schema.Mapper == nil {
 			continue
 		}
-		datas, _ := data[fieldName].([]map[string]interface{})
+		datas, _ := data[fieldName].([]interface{})
 		for _, fieldData := range datas {
-			schema.Mapper.ToInternal(fieldData)
+			schema.Mapper.ToInternal(convert.ToMapInterface(fieldData))
 		}
 	}
 

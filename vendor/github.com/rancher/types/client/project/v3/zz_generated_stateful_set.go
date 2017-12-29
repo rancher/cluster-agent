@@ -12,6 +12,7 @@ const (
 	StatefulSetFieldBatchSize                     = "batchSize"
 	StatefulSetFieldContainers                    = "containers"
 	StatefulSetFieldCreated                       = "created"
+	StatefulSetFieldCreatorID                     = "creatorId"
 	StatefulSetFieldDNSPolicy                     = "dnsPolicy"
 	StatefulSetFieldDeploymentStrategy            = "deploymentStrategy"
 	StatefulSetFieldFinalizers                    = "finalizers"
@@ -33,7 +34,6 @@ const (
 	StatefulSetFieldProjectID                     = "projectId"
 	StatefulSetFieldPullSecrets                   = "pullSecrets"
 	StatefulSetFieldRemoved                       = "removed"
-	StatefulSetFieldResourcePath                  = "resourcePath"
 	StatefulSetFieldRestart                       = "restart"
 	StatefulSetFieldRevisionHistoryLimit          = "revisionHistoryLimit"
 	StatefulSetFieldRunAsNonRoot                  = "runAsNonRoot"
@@ -46,7 +46,6 @@ const (
 	StatefulSetFieldStatus                        = "status"
 	StatefulSetFieldSubdomain                     = "subdomain"
 	StatefulSetFieldTerminationGracePeriodSeconds = "terminationGracePeriodSeconds"
-	StatefulSetFieldTolerations                   = "tolerations"
 	StatefulSetFieldTransitioning                 = "transitioning"
 	StatefulSetFieldTransitioningMessage          = "transitioningMessage"
 	StatefulSetFieldUid                           = "uid"
@@ -66,6 +65,7 @@ type StatefulSet struct {
 	BatchSize                     string                     `json:"batchSize,omitempty"`
 	Containers                    []Container                `json:"containers,omitempty"`
 	Created                       string                     `json:"created,omitempty"`
+	CreatorID                     string                     `json:"creatorId,omitempty"`
 	DNSPolicy                     string                     `json:"dnsPolicy,omitempty"`
 	DeploymentStrategy            *DeployStrategy            `json:"deploymentStrategy,omitempty"`
 	Finalizers                    []string                   `json:"finalizers,omitempty"`
@@ -87,7 +87,6 @@ type StatefulSet struct {
 	ProjectID                     string                     `json:"projectId,omitempty"`
 	PullSecrets                   []LocalObjectReference     `json:"pullSecrets,omitempty"`
 	Removed                       string                     `json:"removed,omitempty"`
-	ResourcePath                  string                     `json:"resourcePath,omitempty"`
 	Restart                       string                     `json:"restart,omitempty"`
 	RevisionHistoryLimit          *int64                     `json:"revisionHistoryLimit,omitempty"`
 	RunAsNonRoot                  *bool                      `json:"runAsNonRoot,omitempty"`
@@ -100,7 +99,6 @@ type StatefulSet struct {
 	Status                        *StatefulSetStatus         `json:"status,omitempty"`
 	Subdomain                     string                     `json:"subdomain,omitempty"`
 	TerminationGracePeriodSeconds *int64                     `json:"terminationGracePeriodSeconds,omitempty"`
-	Tolerations                   []Toleration               `json:"tolerations,omitempty"`
 	Transitioning                 string                     `json:"transitioning,omitempty"`
 	TransitioningMessage          string                     `json:"transitioningMessage,omitempty"`
 	Uid                           *int64                     `json:"uid,omitempty"`
