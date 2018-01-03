@@ -3,6 +3,7 @@ package authz
 import (
 	"github.com/pkg/errors"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 )
 
@@ -33,6 +34,11 @@ func (r *roleHandler) ensurePRTBAddToNamespace(key string, obj *v1.Namespace) er
 		prtb, ok := prtb.(*v3.ProjectRoleTemplateBinding)
 		if !ok {
 			return errors.Wrapf(err, "object %v is not valid project role template binding", prtb)
+		}
+
+		if prtb.RoleTemplateName == "" {
+			logrus.Warnf("ProjectRoleTemplateBinding %v has no role template set. Skipping.", prtb.Name)
+			continue
 		}
 
 		rt, err := r.rtLister.Get("", prtb.RoleTemplateName)

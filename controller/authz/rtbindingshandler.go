@@ -112,6 +112,15 @@ func (r *roleHandler) ensureCRTB(key string, binding *v3.ClusterRoleTemplateBind
 		}
 	}
 
+	if binding.RoleTemplateName == "" {
+		logrus.Warnf("ClusterRoleTemplateBinding %v has no role template set. Skipping.", binding.Name)
+		return nil
+	}
+	if binding.Subject.Name == "" {
+		logrus.Warnf("Binding %v has no subject. Skipping", binding.Name)
+		return nil
+	}
+
 	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't get role template %v", binding.RoleTemplateName)
@@ -154,6 +163,15 @@ func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBind
 		if _, err := r.workload.Management.Management.ProjectRoleTemplateBindings(binding.Namespace).Update(binding); err != nil {
 			return errors.Wrapf(err, "couldn't set finalizer on %v", key)
 		}
+	}
+
+	if binding.RoleTemplateName == "" {
+		logrus.Warnf("ProjectRoleTemplateBinding %v has no role template set. Skipping.", binding.Name)
+		return nil
+	}
+	if binding.Subject.Name == "" {
+		logrus.Warnf("Binding %v has no subject. Skipping", binding.Name)
+		return nil
 	}
 
 	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
