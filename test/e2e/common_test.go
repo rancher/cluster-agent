@@ -59,11 +59,8 @@ func setupNS(name, projectName string, nsClient v1.NamespaceInterface, c *check.
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
-			Labels: map[string]string{
-				"io.cattle.field.projectId": projectName,
-			},
 			Annotations: map[string]string{
-				"io.cattle.field.projectId": projectName,
+				"field.cattle.io/projectId": projectName,
 			},
 		},
 	}

@@ -21,7 +21,7 @@ func (r *roleHandler) syncNS(key string, obj *v1.Namespace) error {
 
 func (r *roleHandler) ensurePRTBAddToNamespace(key string, obj *v1.Namespace) error {
 	// Get project that contain this namespace
-	projectID := obj.Labels[projectIDLabel]
+	projectID := obj.Annotations[projectIDAnnotation]
 	if len(projectID) == 0 {
 		return nil
 	}
