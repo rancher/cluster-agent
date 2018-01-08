@@ -45,6 +45,8 @@ var conditionMappings = []conditionMapping{
 	{Name: "Ready", Transition: false, State: "activating"},
 	{Name: "BackingNamespaceCreated", Transition: true, State: "activating"},
 	{Name: "CreatorMadeOwner", Transition: true, State: "activating"},
+	{Name: "DefaultProjectCreated", Transition: true, State: "activating"},
+	{Name: "DefaultNamespaceAssigned", Transition: true, State: "activating"},
 }
 
 func Set(data map[string]interface{}) {
@@ -71,22 +73,6 @@ func Set(data map[string]interface{}) {
 	}
 
 	val, ok = values.GetValue(data, "status", "conditions")
-	if !ok || val == nil {
-		if val, ok := values.GetValue(data, "metadata", "created"); ok {
-			if i, err := convert.ToTimestamp(val); err == nil {
-				if time.Unix(i/1000, 0).Add(5 * time.Second).Before(time.Now()) {
-					data["state"] = "active"
-					data["transitioning"] = "no"
-					return
-				}
-			}
-		}
-
-		data["state"] = "initializing"
-		data["transitioning"] = "yes"
-		return
-	}
-
 	var conditions []condition
 	if err := convert.ToObj(val, &conditions); err != nil {
 		// ignore error
@@ -145,19 +131,32 @@ func Set(data map[string]interface{}) {
 	}
 
 	if state == "" {
-		val, _ := values.GetValueN(data, "status", "phase").(string)
-		if val != "" {
-			state = val
-		}
-	}
-
-	if state == "" {
 		val, ok := values.GetValue(data, "spec", "active")
 		if ok {
 			if convert.ToBool(val) {
 				state = "active"
 			} else {
 				state = "inactive"
+			}
+		}
+	}
+
+	if state == "" {
+		val, _ := values.GetValueN(data, "status", "phase").(string)
+		if val != "" {
+			state = val
+		}
+	}
+
+	if state == "" && len(conditions) == 0 {
+		if val, ok := values.GetValue(data, "metadata", "created"); ok {
+			if i, err := convert.ToTimestamp(val); err == nil {
+				if time.Unix(i/1000, 0).Add(5 * time.Second).Before(time.Now()) {
+					state = "active"
+				} else {
+					state = "initializing"
+					transitioning = true
+				}
 			}
 		}
 	}
