@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/rancher/norman/types/slice"
-	typesextv1beta1 "github.com/rancher/types/apis/extensions/v1beta1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	typesrbacv1 "github.com/rancher/types/apis/rbac.authorization.k8s.io/v1"
 	"github.com/rancher/types/config"
@@ -47,11 +46,9 @@ func Register(workload *config.ClusterContext) {
 		prtbIndexer: informer.GetIndexer(),
 		nsIndexer:   nsInformer.GetIndexer(),
 		rtLister:    workload.Management.Management.RoleTemplates("").Controller().Lister(),
-		psptLister:  workload.Management.Management.PodSecurityPolicyTemplates("").Controller().Lister(),
 		rbLister:    workload.RBAC.RoleBindings("").Controller().Lister(),
 		crbLister:   workload.RBAC.ClusterRoleBindings("").Controller().Lister(),
 		crLister:    workload.RBAC.ClusterRoles("").Controller().Lister(),
-		pspLister:   workload.Extensions.PodSecurityPolicies("").Controller().Lister(),
 	}
 	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.syncPRTB)
 	workload.Management.Management.ClusterRoleTemplateBindings("").Controller().AddHandler(r.syncCRTB)
@@ -68,11 +65,9 @@ type roleHandler struct {
 	rtLister    v3.RoleTemplateLister
 	prtbIndexer cache.Indexer
 	nsIndexer   cache.Indexer
-	psptLister  v3.PodSecurityPolicyTemplateLister
 	crLister    typesrbacv1.ClusterRoleLister
 	crbLister   typesrbacv1.ClusterRoleBindingLister
 	rbLister    typesrbacv1.RoleBindingLister
-	pspLister   typesextv1beta1.PodSecurityPolicyLister
 }
 
 func (r *roleHandler) syncCRTB(key string, binding *v3.ClusterRoleTemplateBinding) error {
