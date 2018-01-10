@@ -99,14 +99,7 @@ func authzTypes(schemas *types.Schemas) *types.Schemas {
 		}).
 		MustImport(&Version, v3.GlobalRole{}).
 		MustImport(&Version, v3.GlobalRoleBinding{}).
-		MustImportAndCustomize(&Version, v3.RoleTemplate{}, func(schema *types.Schema) {
-			schema.MustCustomizeField("context", func(field types.Field) types.Field {
-				field.Type = "enum"
-				field.Options = []string{"cluster", "project"}
-				field.Nullable = false
-				return field
-			})
-		}).
+		MustImport(&Version, v3.RoleTemplate{}).
 		MustImport(&Version, v3.PodSecurityPolicyTemplate{}).
 		MustImportAndCustomize(&Version, v3.ClusterRoleTemplateBinding{}, func(schema *types.Schema) {
 			schema.MustCustomizeField("subjectKind", func(field types.Field) types.Field {
@@ -168,6 +161,7 @@ func machineTypes(schemas *types.Schemas) *types.Schemas {
 	return schemas.
 		AddMapperForType(&Version, v3.MachineSpec{}, &m.Embed{Field: "nodeSpec"}).
 		AddMapperForType(&Version, v3.MachineStatus{},
+			&m.Drop{Field: "token"},
 			&m.Drop{Field: "rkeNode"},
 			&m.Drop{Field: "machineTemplateSpec"},
 			&m.Drop{Field: "machineDriverConfig"},
