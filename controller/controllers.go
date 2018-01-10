@@ -10,6 +10,7 @@ import (
 	"github.com/rancher/cluster-agent/controller/secret"
 	"github.com/rancher/cluster-agent/controller/statsyncer"
 	"github.com/rancher/types/config"
+	helmController "github.com/rancher/helm-controller/controller"
 	workloadController "github.com/rancher/workload-controller/controller"
 )
 
@@ -20,6 +21,7 @@ func Register(ctx context.Context, cluster *config.ClusterContext) error {
 	statsyncer.Register(cluster)
 	eventssyncer.Register(cluster)
 	secret.Register(cluster)
+	helmController.Register(cluster)
 
 	workloadContext := cluster.WorkloadContext()
 	return workloadController.Register(ctx, workloadContext)
