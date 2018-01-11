@@ -12,16 +12,17 @@ import (
 )
 
 type EventsSyncer struct {
-	clusterName   string
-	Clusters      clusterv1.ClusterInterface
-	ClusterEvents clusterv1.ClusterEventInterface
+	clusterName         string
+	clusters            clusterv1.ClusterLister
+	clusterEvents       clusterv1.ClusterEventLister
+	clusterEventsClient clusterv1.ClusterEventInterface
 }
 
 func Register(workload *config.ClusterContext) {
 	e := &EventsSyncer{
-		clusterName:   workload.ClusterName,
-		Clusters:      workload.Management.Management.Clusters(""),
-		ClusterEvents: workload.Management.Management.ClusterEvents(""),
+		clusterName:         workload.ClusterName,
+		clusters:            workload.Management.Management.Clusters("").Controller().Lister(),
+		clusterEventsClient: workload.Management.Management.ClusterEvents(""),
 	}
 	workload.Core.Events("").Controller().AddHandler(e.sync)
 }
@@ -34,13 +35,13 @@ func (e *EventsSyncer) sync(key string, event *v1.Event) error {
 }
 
 func (e *EventsSyncer) createClusterEvent(key string, event *v1.Event) error {
-	existing, err := e.ClusterEvents.Get(event.Name, metav1.GetOptions{})
+	existing, err := e.clusterEvents.Get("", event.Name)
 
 	if err == nil || apierrors.IsNotFound(err) {
 		if existing != nil && existing.Name != "" {
 			return nil
 		}
-		cluster, err := e.Clusters.Get(e.clusterName, metav1.GetOptions{})
+		cluster, err := e.clusters.Get("", e.clusterName)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil
@@ -53,7 +54,7 @@ func (e *EventsSyncer) createClusterEvent(key string, event *v1.Event) error {
 		}
 		logrus.Infof("Creating cluster event [%s]", event.Message)
 		clusterEvent := e.convertEventToClusterEvent(event, cluster)
-		_, err = e.ClusterEvents.Create(clusterEvent)
+		_, err = e.clusterEventsClient.Create(clusterEvent)
 		return err
 	}
 
