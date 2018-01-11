@@ -137,6 +137,9 @@ func (s *StatSyncer) updateClusterNode(cnode *v3.Machine, requests map[v1.Resour
 	}
 
 	_, err := s.ClusterNodes.Update(cnode)
+	if err == nil {
+		s.Clusters.Controller().Enqueue("", cnode.ClusterName)
+	}
 	return err
 }
 
