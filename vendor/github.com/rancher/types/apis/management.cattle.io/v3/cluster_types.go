@@ -2,6 +2,7 @@ package v3
 
 import (
 	"github.com/rancher/norman/condition"
+	"github.com/rancher/norman/types"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -19,7 +20,7 @@ const (
 	ClusterConditionNoMemoryPressure condition.Cond = "NoMemoryPressure"
 	// ClusterConditionconditionDefautlProjectCreated true when default project has been created
 	ClusterConditionconditionDefautlProjectCreated condition.Cond = "DefaultProjectCreated"
-	// ClusterCondictionDefaultNamespaceAssigned true when cluster's default namespace has been initially assigned
+	// ClusterConditionDefaultNamespaceAssigned true when cluster's default namespace has been initially assigned
 	ClusterConditionDefaultNamespaceAssigned condition.Cond = "DefaultNamespaceAssigned"
 	// More conditions can be added if unredlying controllers request it
 )
@@ -135,6 +136,7 @@ type AzureKubernetesServiceConfig struct {
 }
 
 type ClusterEvent struct {
+	types.Namespaced
 	v1.Event
 	ClusterName string `json:"clusterName" norman:"type=reference[cluster]"`
 }
