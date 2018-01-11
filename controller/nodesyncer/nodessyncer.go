@@ -9,7 +9,6 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
-	"k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,7 +76,7 @@ func resetConditions(machine *v3.Machine) *v3.Machine {
 		return machine
 	}
 	updated := machine.DeepCopy()
-	var toUpdateConds []v1.NodeCondition
+	var toUpdateConds []corev1.NodeCondition
 	for _, cond := range machine.Status.NodeStatus.Conditions {
 		toUpdateCond := cond.DeepCopy()
 		toUpdateCond.LastHeartbeatTime = metav1.Time{}
@@ -167,8 +166,8 @@ func (n *NodeSyncer) Create(node *corev1.Node) (*corev1.Node, error) {
 	}
 
 	logrus.Infof("Creating cluster node [%s]", node.Name)
-	machine.Status.Requested = make(map[v1.ResourceName]resource.Quantity)
-	machine.Status.Limits = make(map[v1.ResourceName]resource.Quantity)
+	machine.Status.Requested = make(map[corev1.ResourceName]resource.Quantity)
+	machine.Status.Limits = make(map[corev1.ResourceName]resource.Quantity)
 	_, err = n.machinesClient.Create(machine)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to create cluster node [%s]", node.Name)

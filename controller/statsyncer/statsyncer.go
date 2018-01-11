@@ -67,7 +67,8 @@ func (s *StatSyncer) syncClusterNodeResources() error {
 		return nil
 	}
 	if !v3.ClusterConditionProvisioned.IsTrue(cluster) {
-		return fmt.Errorf("Skip syncing node resources - cluster [%s] not provisioned yet", s.clusterName)
+		logrus.Debugf("Skip syncing node resources - cluster [%s] not provisioned yet", s.clusterName)
+		return nil
 	}
 	nodes, err := s.nodes.List("", labels.NewSelector())
 	if err != nil {
