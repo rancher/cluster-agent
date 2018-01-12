@@ -32,7 +32,6 @@ func Register(cluster *config.ClusterContext) {
 		clusters:         cluster.Management.Management.Clusters("").Controller().Lister(),
 	}
 	cluster.Core.Nodes("").AddLifecycle("nodesSyncer", n)
-	logrus.Info("registered")
 }
 
 func (n *NodeSyncer) Remove(node *corev1.Node) (*corev1.Node, error) {
@@ -100,21 +99,10 @@ func (n *NodeSyncer) Updated(node *corev1.Node) (*corev1.Node, error) {
 		return nil, err
 	}
 	// update only when nothing changed
-	// remove the condition timestamps
-	toUpdateToCompare := resetConditions(toUpdate)
-	existingToCompare := resetConditions(existing)
-	// we are updating spec and status only, so compare them
-	statusEqual := reflect.DeepEqual(toUpdateToCompare.Status.NodeStatus, existingToCompare.Status.NodeStatus)
-	specEqual := reflect.DeepEqual(toUpdateToCompare.Spec.NodeSpec, existingToCompare.Spec.NodeSpec)
-	if statusEqual && specEqual {
+	if objectsAreEqual(existing, toUpdate) {
 		return nil, nil
 	}
-
 	logrus.Debugf("Updating cluster node [%s]", node.Name)
-	toUpdate.ResourceVersion = existing.ResourceVersion
-	toUpdate.Name = existing.Name
-	toUpdate.Status.Requested = existing.Status.Requested
-	toUpdate.Status.Limits = existing.Status.Limits
 	_, err = n.machinesClient.Update(toUpdate)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to update cluster node [%s]", node.Name)
@@ -123,7 +111,16 @@ func (n *NodeSyncer) Updated(node *corev1.Node) (*corev1.Node, error) {
 	return nil, nil
 }
 
-func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node, existingMachine *v3.Machine) (*v3.Machine, error) {
+func objectsAreEqual(existing *v3.Machine, toUpdate *v3.Machine) bool {
+	// we are updating spec and status only, so compare them
+	toUpdateToCompare := resetConditions(toUpdate)
+	existingToCompare := resetConditions(existing)
+	statusEqual := reflect.DeepEqual(toUpdateToCompare.Status.NodeStatus, existingToCompare.Status.NodeStatus)
+	specEqual := reflect.DeepEqual(toUpdateToCompare.Spec.NodeSpec, existingToCompare.Spec.NodeSpec)
+	return statusEqual && specEqual
+}
+
+func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Machine) (*v3.Machine, error) {
 	cluster, err := n.clusters.Get("", n.clusterName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get cluster [%s]", n.clusterName)
@@ -133,19 +130,25 @@ func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node, existingMachine *v3
 	}
 
 	var machine *v3.Machine
-	if existingMachine == nil {
+	if existing == nil {
 		machine = &v3.Machine{
 			Spec:   v3.MachineSpec{},
 			Status: v3.MachineStatus{},
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "machine-"},
 		}
+		machine.Status.Requested = make(map[corev1.ResourceName]resource.Quantity)
+		machine.Status.Limits = make(map[corev1.ResourceName]resource.Quantity)
+		machine.Spec.NodeSpec = *node.Spec.DeepCopy()
+		machine.Status.NodeStatus = *node.Status.DeepCopy()
 	} else {
-		machine = existingMachine.DeepCopy()
+		machine = existing.DeepCopy()
+		machine.Spec.NodeSpec = *node.Spec.DeepCopy()
+		machine.Status.NodeStatus = *node.Status.DeepCopy()
+		machine.Status.Requested = existing.Status.Requested
+		machine.Status.Limits = existing.Status.Limits
 	}
 
-	machine.Spec.NodeSpec = *node.Spec.DeepCopy()
-	machine.Status.NodeStatus = *node.Status.DeepCopy()
 	machine.Status.NodeName = node.Name
 	machine.APIVersion = "management.cattle.io/v3"
 	machine.Kind = "Machine"
@@ -163,8 +166,6 @@ func (n *NodeSyncer) Create(node *corev1.Node) (*corev1.Node, error) {
 	}
 
 	logrus.Infof("Creating cluster node [%s]", node.Name)
-	machine.Status.Requested = make(map[corev1.ResourceName]resource.Quantity)
-	machine.Status.Limits = make(map[corev1.ResourceName]resource.Quantity)
 	_, err = n.machinesClient.Create(machine)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to create cluster node [%s]", node.Name)

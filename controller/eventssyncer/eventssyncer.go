@@ -73,7 +73,7 @@ func (e *EventsSyncer) createClusterEvent(key string, event *corev1.Event) error
 			return nil
 		}
 
-		logrus.Infof("Creating cluster event [%s]", event.Message)
+		logrus.Debugf("Creating cluster event [%s]", event.Message)
 		clusterEvent := e.convertEventToClusterEvent(event, ns)
 		_, err = e.clusterEventsClient.Create(clusterEvent)
 		return err
