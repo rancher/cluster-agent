@@ -56,8 +56,8 @@ func Register(workload *config.ClusterContext) {
 	workload.Management.Management.RoleTemplates("").Controller().AddHandler(r.syncRT)
 	workload.Core.Namespaces("").Controller().AddHandler(r.syncNS)
 
-	namespaceLifecycle := newNSLifecycle(workload)
-	workload.Core.Namespaces("").AddLifecycle("defaultNamespace", namespaceLifecycle)
+	namespaceLifecycle := newNSHandler(workload)
+	workload.Core.Namespaces("").AddSyncHandler(namespaceLifecycle.sync)
 
 }
 

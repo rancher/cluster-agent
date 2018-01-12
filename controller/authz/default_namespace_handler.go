@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func newNSLifecycle(context *config.ClusterContext) *nsLifecycle {
+func newNSHandler(context *config.ClusterContext) *nsLifecycle {
 	return &nsLifecycle{
 		workload:      context,
 		clusterLister: context.Management.Management.Clusters("").Controller().Lister(),
@@ -24,22 +24,7 @@ type nsLifecycle struct {
 	clusterName   string
 }
 
-func (l *nsLifecycle) Create(obj *v1.Namespace) (*v1.Namespace, error) {
-	err := l.reconcileNS(obj)
-	return obj, err
-
-}
-
-func (l *nsLifecycle) Updated(obj *v1.Namespace) (*v1.Namespace, error) {
-	err := l.reconcileNS(obj)
-	return obj, err
-}
-
-func (l *nsLifecycle) Remove(obj *v1.Namespace) (*v1.Namespace, error) {
-	return obj, nil
-}
-
-func (l *nsLifecycle) reconcileNS(ns *v1.Namespace) error {
+func (l *nsLifecycle) sync(key string, ns *v1.Namespace) error {
 	if ns.Name != "default" {
 		return nil
 	}
