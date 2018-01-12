@@ -16,20 +16,23 @@ import (
 )
 
 type NodeSyncer struct {
-	machinesClient v3.MachineInterface
-	machines       v3.MachineLister
-	clusters       v3.ClusterLister
-	clusterName    string
+	machinesClient   v3.MachineInterface
+	machines         v3.MachineLister
+	clusters         v3.ClusterLister
+	clusterName      string
+	clusterNamespace string
 }
 
-func Register(workload *config.ClusterContext) {
+func Register(cluster *config.ClusterContext) {
 	n := &NodeSyncer{
-		clusterName:    workload.ClusterName,
-		machinesClient: workload.Management.Management.Machines(""),
-		machines:       workload.Management.Management.Machines("").Controller().Lister(),
-		clusters:       workload.Management.Management.Clusters("").Controller().Lister(),
+		clusterName:      cluster.ClusterName,
+		clusterNamespace: cluster.ClusterName,
+		machinesClient:   cluster.Management.Management.Machines(cluster.ClusterName),
+		machines:         cluster.Management.Management.Machines(cluster.ClusterName).Controller().Lister(),
+		clusters:         cluster.Management.Management.Clusters("").Controller().Lister(),
 	}
-	workload.Core.Nodes("").AddLifecycle("nodesSyncer", n)
+	cluster.Core.Nodes("").AddLifecycle("nodesSyncer", n)
+	logrus.Info("registered")
 }
 
 func (n *NodeSyncer) Remove(node *corev1.Node) (*corev1.Node, error) {
@@ -52,7 +55,7 @@ func (n *NodeSyncer) Remove(node *corev1.Node) (*corev1.Node, error) {
 }
 
 func (n *NodeSyncer) getMachine(nodeName string) (*v3.Machine, error) {
-	machines, err := n.machines.List("", labels.NewSelector())
+	machines, err := n.machines.List(n.clusterNamespace, labels.NewSelector())
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +95,7 @@ func (n *NodeSyncer) Updated(node *corev1.Node) (*corev1.Node, error) {
 	if err != nil || existing == nil {
 		return nil, err
 	}
-	toUpdate, err := n.convertNodeToMachine(node)
+	toUpdate, err := n.convertNodeToMachine(node, existing)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +123,7 @@ func (n *NodeSyncer) Updated(node *corev1.Node) (*corev1.Node, error) {
 	return nil, nil
 }
 
-func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node) (*v3.Machine, error) {
+func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node, existingMachine *v3.Machine) (*v3.Machine, error) {
 	cluster, err := n.clusters.Get("", n.clusterName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get cluster [%s]", n.clusterName)
@@ -128,29 +131,24 @@ func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node) (*v3.Machine, error
 	if cluster.ObjectMeta.DeletionTimestamp != nil {
 		return nil, fmt.Errorf("Failed to find cluster [%s]", n.clusterName)
 	}
-	machine := &v3.Machine{
-		Spec: v3.MachineSpec{
-			NodeSpec: *node.Spec.DeepCopy(),
-		},
-		Status: v3.MachineStatus{
-			NodeStatus: *node.Status.DeepCopy(),
-		},
+
+	var machine *v3.Machine
+	if existingMachine == nil {
+		machine = &v3.Machine{
+			Spec:   v3.MachineSpec{},
+			Status: v3.MachineStatus{},
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "machine-"},
+		}
+	} else {
+		machine = existingMachine.DeepCopy()
 	}
+
+	machine.Spec.NodeSpec = *node.Spec.DeepCopy()
+	machine.Status.NodeStatus = *node.Status.DeepCopy()
+	machine.Status.NodeName = node.Name
 	machine.APIVersion = "management.cattle.io/v3"
 	machine.Kind = "Machine"
-	machine.Status.NodeName = node.Name
-	machine.ObjectMeta = metav1.ObjectMeta{
-		GenerateName: "machine-",
-		Labels:       node.Labels,
-		Annotations:  node.Annotations,
-	}
-	ref := metav1.OwnerReference{
-		Name:       n.clusterName,
-		UID:        cluster.UID,
-		APIVersion: cluster.APIVersion,
-		Kind:       cluster.Kind,
-	}
-	machine.OwnerReferences = append(machine.OwnerReferences, ref)
 	return machine, nil
 }
 
@@ -159,7 +157,7 @@ func (n *NodeSyncer) Create(node *corev1.Node) (*corev1.Node, error) {
 	if err != nil || existing != nil {
 		return nil, err
 	}
-	machine, err := n.convertNodeToMachine(node)
+	machine, err := n.convertNodeToMachine(node, nil)
 	if err != nil {
 		return nil, err
 	}
