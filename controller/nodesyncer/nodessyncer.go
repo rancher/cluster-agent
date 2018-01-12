@@ -138,7 +138,6 @@ func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node) (*v3.Machine, error
 	}
 	machine.APIVersion = "management.cattle.io/v3"
 	machine.Kind = "Machine"
-	machine.Status.ClusterName = n.clusterName
 	machine.Status.NodeName = node.Name
 	machine.ObjectMeta = metav1.ObjectMeta{
 		GenerateName: "machine-",
