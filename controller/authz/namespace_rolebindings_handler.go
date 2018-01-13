@@ -51,8 +51,8 @@ func (r *roleHandler) ensureDefaultNamespaceAssigned(key string, ns *v1.Namespac
 		if ns.Annotations == nil {
 			ns.Annotations = map[string]string{}
 		}
-		ns.Annotations[projectIDAnnotation] = fmt.Sprintf("%v:default", l.clusterName)
-		if _, err := r.workload.Core.Namespaces(l.clusterName).Update(ns); err != nil {
+		ns.Annotations[projectIDAnnotation] = fmt.Sprintf("%v:rancher-default", r.clusterName)
+		if _, err := r.workload.Core.Namespaces(r.clusterName).Update(ns); err != nil {
 			return nil, err
 		}
 
