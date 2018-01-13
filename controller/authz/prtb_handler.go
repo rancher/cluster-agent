@@ -11,23 +11,23 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func (r *roleHandler) syncPRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
+func (m *manager) syncPRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
 	if binding == nil {
 		return nil
 	}
 
 	if binding.DeletionTimestamp != nil {
-		return r.ensurePRTBDelete(key, binding)
+		return m.ensurePRTBDelete(key, binding)
 	}
 
-	return r.ensurePRTB(key, binding)
+	return m.ensurePRTB(key, binding)
 }
 
-func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
+func (m *manager) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBinding) error {
 	binding = binding.DeepCopy()
-	added := r.addFinalizer(binding)
+	added := m.addFinalizer(binding)
 	if added {
-		if _, err := r.workload.Management.Management.ProjectRoleTemplateBindings(binding.Namespace).Update(binding); err != nil {
+		if _, err := m.workload.Management.Management.ProjectRoleTemplateBindings(binding.Namespace).Update(binding); err != nil {
 			return errors.Wrapf(err, "couldn't set finalizer on %v", key)
 		}
 	}
@@ -41,13 +41,13 @@ func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBind
 		return nil
 	}
 
-	rt, err := r.rtLister.Get("", binding.RoleTemplateName)
+	rt, err := m.rtLister.Get("", binding.RoleTemplateName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't get role template %v", binding.RoleTemplateName)
 	}
 
 	// Get namespaces belonging to project
-	namespaces, err := r.nsIndexer.ByIndex(nsIndex, binding.ProjectName)
+	namespaces, err := m.nsIndexer.ByIndex(nsIndex, binding.ProjectName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't list namespaces with project ID %v", binding.ProjectName)
 	}
@@ -56,18 +56,18 @@ func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBind
 	}
 
 	roles := map[string]*v3.RoleTemplate{}
-	if err := r.gatherRoles(rt, roles); err != nil {
+	if err := m.gatherRoles(rt, roles); err != nil {
 		return err
 	}
 
-	if err := r.ensureRoles(roles); err != nil {
+	if err := m.ensureRoles(roles); err != nil {
 		return errors.Wrap(err, "couldn't ensure roles")
 	}
 
 	for _, n := range namespaces {
 		ns := n.(*v1.Namespace)
 		for _, role := range roles {
-			if err := r.ensureBinding(ns.Name, role.Name, binding); err != nil {
+			if err := m.ensureBinding(ns.Name, role.Name, binding); err != nil {
 				return errors.Wrapf(err, "couldn't ensure binding %v %v in %v", role.Name, binding.Subject.Name, ns.Name)
 			}
 		}
@@ -76,10 +76,10 @@ func (r *roleHandler) ensurePRTB(key string, binding *v3.ProjectRoleTemplateBind
 	return nil
 }
 
-func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
-	bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns)
+func (m *manager) ensureBinding(ns, roleName string, binding *v3.ProjectRoleTemplateBinding) error {
+	bindingCli := m.workload.K8sClient.RbacV1().RoleBindings(ns)
 	bindingName, objectMeta, subjects, roleRef := bindingParts(roleName, string(binding.UID), binding.Subject)
-	if b, _ := r.rbLister.Get(ns, bindingName); b != nil {
+	if b, _ := m.rbLister.Get(ns, bindingName); b != nil {
 		return nil
 	}
 	_, err := bindingCli.Create(&rbacv1.RoleBinding{
@@ -90,15 +90,15 @@ func (r *roleHandler) ensureBinding(ns, roleName string, binding *v3.ProjectRole
 	return err
 }
 
-func (r *roleHandler) ensurePRTBDelete(key string, binding *v3.ProjectRoleTemplateBinding) error {
-	if len(binding.ObjectMeta.Finalizers) <= 0 || binding.ObjectMeta.Finalizers[0] != r.finalizerName {
+func (m *manager) ensurePRTBDelete(key string, binding *v3.ProjectRoleTemplateBinding) error {
+	if len(binding.ObjectMeta.Finalizers) <= 0 || binding.ObjectMeta.Finalizers[0] != m.finalizerName {
 		return nil
 	}
 
 	binding = binding.DeepCopy()
 
 	// Get namespaces belonging to project
-	namespaces, err := r.nsIndexer.ByIndex(nsIndex, binding.ProjectName)
+	namespaces, err := m.nsIndexer.ByIndex(nsIndex, binding.ProjectName)
 	if err != nil {
 		return errors.Wrapf(err, "couldn't list namespaces with project ID %v", binding.ProjectName)
 	}
@@ -106,8 +106,8 @@ func (r *roleHandler) ensurePRTBDelete(key string, binding *v3.ProjectRoleTempla
 	set := labels.Set(map[string]string{rtbOwnerLabel: string(binding.UID)})
 	for _, n := range namespaces {
 		ns := n.(*v1.Namespace)
-		bindingCli := r.workload.K8sClient.RbacV1().RoleBindings(ns.Name)
-		rbs, err := r.rbLister.List(ns.Name, set.AsSelector())
+		bindingCli := m.workload.K8sClient.RbacV1().RoleBindings(ns.Name)
+		rbs, err := m.rbLister.List(ns.Name, set.AsSelector())
 		if err != nil {
 			return errors.Wrapf(err, "couldn't list rolebindings with selector %s", set.AsSelector())
 		}
@@ -121,8 +121,8 @@ func (r *roleHandler) ensurePRTBDelete(key string, binding *v3.ProjectRoleTempla
 		}
 	}
 
-	if r.removeFinalizer(binding) {
-		_, err := r.workload.Management.Management.ProjectRoleTemplateBindings(binding.Namespace).Update(binding)
+	if m.removeFinalizer(binding) {
+		_, err := m.workload.Management.Management.ProjectRoleTemplateBindings(binding.Namespace).Update(binding)
 		return err
 	}
 	return nil

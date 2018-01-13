@@ -39,7 +39,7 @@ func Register(workload *config.ClusterContext) {
 	}
 	nsInformer.AddIndexers(nsIndexers)
 
-	r := &roleHandler{
+	r := &manager{
 		workload:      workload,
 		prtbIndexer:   informer.GetIndexer(),
 		nsIndexer:     nsInformer.GetIndexer(),
@@ -67,7 +67,7 @@ func prtbIndexer(obj interface{}) ([]string, error) {
 	return []string{prtb.ProjectName}, nil
 }
 
-type roleHandler struct {
+type manager struct {
 	workload      *config.ClusterContext
 	rtLister      v3.RoleTemplateLister
 	prtbIndexer   cache.Indexer
@@ -80,24 +80,24 @@ type roleHandler struct {
 	finalizerName string
 }
 
-func (r *roleHandler) addFinalizer(objectMeta metav1.Object) bool {
-	if slice.ContainsString(objectMeta.GetFinalizers(), r.finalizerName) {
+func (m *manager) addFinalizer(objectMeta metav1.Object) bool {
+	if slice.ContainsString(objectMeta.GetFinalizers(), m.finalizerName) {
 		return false
 	}
 
-	objectMeta.SetFinalizers(append(objectMeta.GetFinalizers(), r.finalizerName))
+	objectMeta.SetFinalizers(append(objectMeta.GetFinalizers(), m.finalizerName))
 	return true
 }
 
-func (r *roleHandler) removeFinalizer(objectMeta metav1.Object) bool {
-	if !slice.ContainsString(objectMeta.GetFinalizers(), r.finalizerName) {
+func (m *manager) removeFinalizer(objectMeta metav1.Object) bool {
+	if !slice.ContainsString(objectMeta.GetFinalizers(), m.finalizerName) {
 		return false
 	}
 
 	changed := false
 	var finalizers []string
 	for _, finalizer := range objectMeta.GetFinalizers() {
-		if finalizer == r.finalizerName {
+		if finalizer == m.finalizerName {
 			changed = true
 			continue
 		}
@@ -111,15 +111,15 @@ func (r *roleHandler) removeFinalizer(objectMeta metav1.Object) bool {
 	return changed
 }
 
-func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
-	roleCli := r.workload.K8sClient.RbacV1().ClusterRoles()
+func (m *manager) ensureRoles(rts map[string]*v3.RoleTemplate) error {
+	roleCli := m.workload.K8sClient.RbacV1().ClusterRoles()
 	for _, rt := range rts {
 		if rt.Builtin {
 			// TODO assert the role exists and log an error if it doesnt.
 			continue
 		}
 
-		if role, err := r.crLister.Get("", rt.Name); err == nil && role != nil {
+		if role, err := m.crLister.Get("", rt.Name); err == nil && role != nil {
 			role = role.DeepCopy()
 			// TODO potentially check a version so that we don't do unnecessary updates
 			role.Rules = rt.Rules
@@ -144,15 +144,15 @@ func (r *roleHandler) ensureRoles(rts map[string]*v3.RoleTemplate) error {
 	return nil
 }
 
-func (r *roleHandler) gatherRoles(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate) error {
+func (m *manager) gatherRoles(rt *v3.RoleTemplate, roleTemplates map[string]*v3.RoleTemplate) error {
 	roleTemplates[rt.Name] = rt
 
 	for _, rtName := range rt.RoleTemplateNames {
-		subRT, err := r.rtLister.Get("", rtName)
+		subRT, err := m.rtLister.Get("", rtName)
 		if err != nil {
 			return errors.Wrapf(err, "couldn't get RoleTemplate %s", rtName)
 		}
-		if err := r.gatherRoles(subRT, roleTemplates); err != nil {
+		if err := m.gatherRoles(subRT, roleTemplates); err != nil {
 			return errors.Wrapf(err, "couldn't gather RoleTemplate %s", rtName)
 		}
 	}

@@ -7,51 +7,51 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (r *roleHandler) syncRT(key string, template *v3.RoleTemplate) error {
+func (m *manager) syncRT(key string, template *v3.RoleTemplate) error {
 	if template == nil {
 		return nil
 	}
 
 	if template.DeletionTimestamp != nil {
-		return r.ensureRTDelete(key, template)
+		return m.ensureRTDelete(key, template)
 	}
 
-	return r.ensureRT(key, template)
+	return m.ensureRT(key, template)
 }
 
-func (r *roleHandler) ensureRT(key string, template *v3.RoleTemplate) error {
+func (m *manager) ensureRT(key string, template *v3.RoleTemplate) error {
 	template = template.DeepCopy()
-	if r.addFinalizer(template) {
-		if _, err := r.workload.Management.Management.RoleTemplates("").Update(template); err != nil {
+	if m.addFinalizer(template) {
+		if _, err := m.workload.Management.Management.RoleTemplates("").Update(template); err != nil {
 			return errors.Wrapf(err, "couldn't set finalizer on %v", key)
 		}
 	}
 
 	roles := map[string]*v3.RoleTemplate{}
-	if err := r.gatherRoles(template, roles); err != nil {
+	if err := m.gatherRoles(template, roles); err != nil {
 		return err
 	}
 
-	if err := r.ensureRoles(roles); err != nil {
+	if err := m.ensureRoles(roles); err != nil {
 		return errors.Wrapf(err, "couldn't ensure roles")
 	}
 
 	return nil
 }
 
-func (r *roleHandler) ensureRTDelete(key string, template *v3.RoleTemplate) error {
-	if len(template.ObjectMeta.Finalizers) <= 0 || template.ObjectMeta.Finalizers[0] != r.finalizerName {
+func (m *manager) ensureRTDelete(key string, template *v3.RoleTemplate) error {
+	if len(template.ObjectMeta.Finalizers) <= 0 || template.ObjectMeta.Finalizers[0] != m.finalizerName {
 		return nil
 	}
 
 	template = template.DeepCopy()
 
 	roles := map[string]*v3.RoleTemplate{}
-	if err := r.gatherRoles(template, roles); err != nil {
+	if err := m.gatherRoles(template, roles); err != nil {
 		return err
 	}
 
-	roleCli := r.workload.K8sClient.RbacV1().ClusterRoles()
+	roleCli := m.workload.K8sClient.RbacV1().ClusterRoles()
 	for _, role := range roles {
 		if err := roleCli.Delete(role.Name, &metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -60,8 +60,8 @@ func (r *roleHandler) ensureRTDelete(key string, template *v3.RoleTemplate) erro
 		}
 	}
 
-	if r.removeFinalizer(template) {
-		_, err := r.workload.Management.Management.RoleTemplates("").Update(template)
+	if m.removeFinalizer(template) {
+		_, err := m.workload.Management.Management.RoleTemplates("").Update(template)
 		return err
 	}
 
