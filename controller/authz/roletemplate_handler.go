@@ -7,62 +7,55 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (m *manager) syncRT(key string, template *v3.RoleTemplate) error {
-	if template == nil {
-		return nil
-	}
-
-	if template.DeletionTimestamp != nil {
-		return m.ensureRTDelete(key, template)
-	}
-
-	return m.ensureRT(key, template)
+func newRTLifecycle(m *manager) *rtLifecycle {
+	return &rtLifecycle{m: m}
 }
 
-func (m *manager) ensureRT(key string, template *v3.RoleTemplate) error {
-	template = template.DeepCopy()
-	if m.addFinalizer(template) {
-		if _, err := m.workload.Management.Management.RoleTemplates("").Update(template); err != nil {
-			return errors.Wrapf(err, "couldn't set finalizer on %v", key)
-		}
-	}
+type rtLifecycle struct {
+	m *manager
+}
 
+func (c *rtLifecycle) Create(obj *v3.RoleTemplate) (*v3.RoleTemplate, error) {
+	err := c.syncRT(obj)
+	return obj, err
+}
+
+func (c *rtLifecycle) Updated(obj *v3.RoleTemplate) (*v3.RoleTemplate, error) {
+	err := c.syncRT(obj)
+	return obj, err
+}
+
+func (c *rtLifecycle) Remove(obj *v3.RoleTemplate) (*v3.RoleTemplate, error) {
+	err := c.ensureRTDelete(obj)
+	return obj, err
+}
+
+func (c *rtLifecycle) syncRT(template *v3.RoleTemplate) error {
 	roles := map[string]*v3.RoleTemplate{}
-	if err := m.gatherRoles(template, roles); err != nil {
+	if err := c.m.gatherRoles(template, roles); err != nil {
 		return err
 	}
 
-	if err := m.ensureRoles(roles); err != nil {
+	if err := c.m.ensureRoles(roles); err != nil {
 		return errors.Wrapf(err, "couldn't ensure roles")
 	}
 
 	return nil
 }
 
-func (m *manager) ensureRTDelete(key string, template *v3.RoleTemplate) error {
-	if len(template.ObjectMeta.Finalizers) <= 0 || template.ObjectMeta.Finalizers[0] != m.finalizerName {
-		return nil
-	}
-
-	template = template.DeepCopy()
-
+func (c *rtLifecycle) ensureRTDelete(template *v3.RoleTemplate) error {
 	roles := map[string]*v3.RoleTemplate{}
-	if err := m.gatherRoles(template, roles); err != nil {
+	if err := c.m.gatherRoles(template, roles); err != nil {
 		return err
 	}
 
-	roleCli := m.workload.K8sClient.RbacV1().ClusterRoles()
+	roleCli := c.m.workload.K8sClient.RbacV1().ClusterRoles()
 	for _, role := range roles {
 		if err := roleCli.Delete(role.Name, &metav1.DeleteOptions{}); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return errors.Wrapf(err, "error deleting clusterrole %v", role.Name)
 			}
 		}
-	}
-
-	if m.removeFinalizer(template) {
-		_, err := m.workload.Management.Management.RoleTemplates("").Update(template)
-		return err
 	}
 
 	return nil
