@@ -137,6 +137,7 @@ func (n *NodeSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Machin
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "machine-"},
 		}
+		machine.Namespace = n.clusterNamespace
 		machine.Status.Requested = make(map[corev1.ResourceName]resource.Quantity)
 		machine.Status.Limits = make(map[corev1.ResourceName]resource.Quantity)
 		machine.Spec.NodeSpec = *node.Spec.DeepCopy()
