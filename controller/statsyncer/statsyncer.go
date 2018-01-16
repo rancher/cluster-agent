@@ -88,8 +88,14 @@ func (s *StatSyncer) updateClusterNodeResources(cnodes *v3.MachineList, nodeName
 	for _, cnode := range cnodes.Items {
 		node := nodeNameToNode[cnode.Status.NodeName]
 		if node == nil {
-			logrus.Warnf("Skip adding cluster node resources [%s] Error getting Node %v", cnode.Name, cnode.Status.NodeName)
-			continue
+			// try to fetch by hostnameoverride
+			if cnode.Status.NodeConfig != nil {
+				node = nodeNameToNode[cnode.Status.NodeConfig.HostnameOverride]
+			}
+			if node == nil {
+				logrus.Warnf("Skip adding cluster node [%s] resources. Error getting Node %v", cnode.Name, cnode.Status.NodeName)
+				continue
+			}
 		}
 		pods, err := s.getNonTerminatedPods(node.Name)
 		if err != nil {
