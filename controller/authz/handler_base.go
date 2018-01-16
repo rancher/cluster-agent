@@ -51,10 +51,10 @@ func Register(workload *config.ClusterContext) {
 		clusterName:   workload.ClusterName,
 		finalizerName: finalizerName + workload.ClusterName,
 	}
-	workload.Management.Management.ProjectRoleTemplateBindings("").Controller().AddHandler(r.syncPRTB)
-	workload.Management.Management.ClusterRoleTemplateBindings("").Controller().AddHandler(r.syncCRTB)
-	workload.Management.Management.RoleTemplates("").Controller().AddHandler(r.syncRT)
-	workload.Core.Namespaces("").Controller().AddHandler(r.syncNS)
+	workload.Management.Management.ProjectRoleTemplateBindings("").AddHandler("auth", r.syncPRTB)
+	workload.Management.Management.ClusterRoleTemplateBindings("").AddHandler("auth", r.syncCRTB)
+	workload.Management.Management.RoleTemplates("").AddHandler("auth", r.syncRT)
+	workload.Core.Namespaces("").AddHandler("auth", r.syncNS)
 }
 
 func prtbIndexer(obj interface{}) ([]string, error) {

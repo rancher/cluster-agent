@@ -43,6 +43,7 @@ type Cluster struct {
 
 type ClusterSpec struct {
 	Nodes                                []MachineConfig                `json:"nodes"`
+	DisplayName                          string                         `json:"displayName"`
 	Description                          string                         `json:"description"`
 	Internal                             bool                           `json:"internal" norman:"nocreate,noupdate"`
 	GoogleKubernetesEngineConfig         *GoogleKubernetesEngineConfig  `json:"googleKubernetesEngineConfig,omitempty"`
@@ -68,6 +69,7 @@ type ClusterStatus struct {
 	AppliedSpec         ClusterSpec              `json:"appliedSpec,omitempty"`
 	Requested           v1.ResourceList          `json:"requested,omitempty"`
 	Limits              v1.ResourceList          `json:"limits,omitempty"`
+	ClusterName         string                   `json:"clusterName,omitempty"`
 }
 
 type ClusterComponentStatus struct {
@@ -147,6 +149,8 @@ type ClusterEvent struct {
 }
 
 type ClusterRegistrationToken struct {
+	types.Namespaced
+
 	metav1.TypeMeta `json:",inline"`
 	// Standard object’s metadata. More info:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata
@@ -160,6 +164,7 @@ type ClusterRegistrationToken struct {
 }
 
 type ClusterRegistrationTokenSpec struct {
+	ClusterName string `json:"clusterName" norman:"type=reference[cluster]"`
 }
 
 type ClusterRegistrationTokenStatus struct {
