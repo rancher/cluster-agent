@@ -19,6 +19,7 @@ type condition struct {
 // False == error
 // Unknown == transitioning
 var transitioningMap = map[string]string{
+	"Active":                   "activating",
 	"AgentInstalled":           "installing",
 	"Available":                "activating",
 	"BackingNamespaceCreated":  "configuring",
@@ -26,6 +27,8 @@ var transitioningMap = map[string]string{
 	"CreatorMadeOwner":         "configuring",
 	"DefaultNamespaceAssigned": "configuring",
 	"DefaultProjectCreated":    "configuring",
+	"Downloaded":               "downloading",
+	"Inactive":                 "deactivating",
 	"Initialized":              "initializing",
 	"MachinesCreated":          "provisioning",
 	"PodScheduled":             "scheduling",
@@ -192,7 +195,6 @@ func Set(data map[string]interface{}) {
 		state = "active"
 	}
 
-	data["state"] = strings.ToLower(state)
 	if error {
 		data["transitioning"] = "error"
 	} else if transitioning {
@@ -201,5 +203,6 @@ func Set(data map[string]interface{}) {
 		data["transitioning"] = "no"
 	}
 
+	data["state"] = strings.ToLower(state)
 	data["transitioningMessage"] = message
 }

@@ -20,6 +20,10 @@ type RawResource struct {
 	ActionLinks bool                   `json:"-"`
 }
 
+func (r *RawResource) AddAction(apiContext *APIContext, name string) {
+	r.Actions[name] = apiContext.URLBuilder.Action(name, r)
+}
+
 func (r *RawResource) MarshalJSON() ([]byte, error) {
 	data := map[string]interface{}{}
 	for k, v := range r.Values {
@@ -46,7 +50,7 @@ type RequestHandler func(request *APIContext) error
 
 type QueryFilter func(opts *QueryOptions, data []map[string]interface{}) []map[string]interface{}
 
-type Validator func(request *APIContext, data map[string]interface{}) error
+type Validator func(request *APIContext, schema *Schema, data map[string]interface{}) error
 
 type Formatter func(request *APIContext, resource *RawResource)
 
@@ -64,8 +68,8 @@ type ResponseWriter interface {
 type AccessControl interface {
 	CanCreate(apiContext *APIContext, schema *Schema) bool
 	CanList(apiContext *APIContext, schema *Schema) bool
-	CanUpdate(apiContext *APIContext, schema *Schema) bool
-	CanDelete(apiContext *APIContext, schema *Schema) bool
+	CanUpdate(apiContext *APIContext, obj map[string]interface{}, schema *Schema) bool
+	CanDelete(apiContext *APIContext, obj map[string]interface{}, schema *Schema) bool
 
 	Filter(apiContext *APIContext, obj map[string]interface{}, context map[string]string) map[string]interface{}
 	FilterList(apiContext *APIContext, obj []map[string]interface{}, context map[string]string) []map[string]interface{}
