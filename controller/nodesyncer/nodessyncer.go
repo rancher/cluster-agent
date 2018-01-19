@@ -24,11 +24,18 @@ type NodeSyncer struct {
 	clusterNamespace string
 }
 
+type PodsStatsSyncer struct {
+	clusterName      string
+	clusterNamespace string
+	machinesClient   v3.MachineInterface
+}
+
 type MachinesSyncer struct {
 	machinesClient   v3.MachineInterface
 	machines         v3.MachineLister
 	nodes            v1.NodeLister
 	clusters         v3.ClusterLister
+	pods             v1.PodLister
 	clusterNamespace string
 }
 
@@ -44,13 +51,26 @@ func Register(cluster *config.ClusterContext) {
 		machines:         cluster.Management.Management.Machines(cluster.ClusterName).Controller().Lister(),
 		clusters:         cluster.Management.Management.Clusters("").Controller().Lister(),
 		nodes:            cluster.Core.Nodes("").Controller().Lister(),
+		pods:             cluster.Core.Pods("").Controller().Lister(),
 	}
+
+	p := &PodsStatsSyncer{
+		clusterNamespace: cluster.ClusterName,
+		machinesClient:   cluster.Management.Management.Machines(cluster.ClusterName),
+	}
+
 	cluster.Core.Nodes("").Controller().AddHandler("nodesSyncer", n.sync)
 	cluster.Management.Management.Machines(cluster.ClusterName).Controller().AddHandler("machinesSyncer", m.sync)
+	cluster.Core.Pods("").Controller().AddHandler("podsStatsSyncer", p.sync)
 }
 
 func (n *NodeSyncer) sync(key string, node *corev1.Node) error {
 	n.machinesClient.Controller().Enqueue(n.clusterNamespace, allMachineKey)
+	return nil
+}
+
+func (p *PodsStatsSyncer) sync(key string, pod *corev1.Pod) error {
+	p.machinesClient.Controller().Enqueue(p.clusterNamespace, allMachineKey)
 	return nil
 }
 
@@ -82,6 +102,10 @@ func (m *MachinesSyncer) reconcileAll() error {
 		}
 		machineMap[nodeName] = machine
 	}
+	nodeToPodMap, err := m.getNonTerminatedPods()
+	if err != nil {
+		return err
+	}
 
 	// reconcile machines for existing nodes
 	for name, node := range nodeMap {
@@ -94,7 +118,8 @@ func (m *MachinesSyncer) reconcileAll() error {
 			}
 			remove = true
 		}
-		err = m.reconcileMachineForNode(machine, remove, node)
+
+		err = m.reconcileMachineForNode(machine, remove, node, nodeToPodMap)
 		if err != nil {
 			return err
 		}
@@ -102,22 +127,21 @@ func (m *MachinesSyncer) reconcileAll() error {
 	// run the logic for machine to remove
 	for name, machine := range machineMap {
 		if _, ok := nodeMap[name]; !ok {
-			m.reconcileMachineForNode(machine, true, nil)
+			m.reconcileMachineForNode(machine, true, nil, nil)
 		}
 	}
 
 	return nil
 }
 
-func (m *MachinesSyncer) reconcileMachineForNode(machine *v3.Machine, remove bool, node *corev1.Node) error {
+func (m *MachinesSyncer) reconcileMachineForNode(machine *v3.Machine, remove bool, node *corev1.Node, pods map[string][]*corev1.Pod) error {
 	if remove {
 		return m.removeMachine(machine)
 	}
 	if machine == nil {
-		return m.createMachine(node)
-	} else {
-		return m.updateMachine(machine, node)
+		return m.createMachine(node, pods)
 	}
+	return m.updateMachine(machine, node, pods)
 }
 
 func (m *MachinesSyncer) removeMachine(machine *v3.Machine) error {
@@ -129,8 +153,8 @@ func (m *MachinesSyncer) removeMachine(machine *v3.Machine) error {
 	return nil
 }
 
-func (m *MachinesSyncer) updateMachine(existing *v3.Machine, node *corev1.Node) error {
-	toUpdate, err := m.convertNodeToMachine(node, existing)
+func (m *MachinesSyncer) updateMachine(existing *v3.Machine, node *corev1.Node, pods map[string][]*corev1.Pod) error {
+	toUpdate, err := m.convertNodeToMachine(node, existing, pods)
 	if err != nil {
 		return err
 	}
@@ -147,16 +171,16 @@ func (m *MachinesSyncer) updateMachine(existing *v3.Machine, node *corev1.Node) 
 	return nil
 }
 
-func (m *MachinesSyncer) createMachine(node *corev1.Node) error {
+func (m *MachinesSyncer) createMachine(node *corev1.Node, pods map[string][]*corev1.Pod) error {
 	// try to get machine from api, in case cache didn't get the update
-	existing, err := m.getMachine(node.Name, false)
+	existing, err := m.getMachineForNode(node.Name, false)
 	if err != nil {
 		return err
 	}
 	if existing != nil {
 		return nil
 	}
-	machine, err := m.convertNodeToMachine(node, existing)
+	machine, err := m.convertNodeToMachine(node, existing, pods)
 	if err != nil {
 		return err
 	}
@@ -169,7 +193,7 @@ func (m *MachinesSyncer) createMachine(node *corev1.Node) error {
 	return nil
 }
 
-func (m *MachinesSyncer) getMachine(nodeName string, cache bool) (*v3.Machine, error) {
+func (m *MachinesSyncer) getMachineForNode(nodeName string, cache bool) (*v3.Machine, error) {
 	var machines []*v3.Machine
 	var err error
 	if cache {
@@ -240,10 +264,12 @@ func objectsAreEqual(existing *v3.Machine, toUpdate *v3.Machine) bool {
 	annotationsEqual := reflect.DeepEqual(toUpdateToCompare.Status.NodeAnnotations, existing.Status.NodeAnnotations)
 	specEqual := reflect.DeepEqual(toUpdateToCompare.Spec.NodeSpec, existingToCompare.Spec.NodeSpec)
 	nodeNameEqual := toUpdateToCompare.Status.NodeName == existingToCompare.Status.NodeName
-	return statusEqual && specEqual && nodeNameEqual && labelsEqual && annotationsEqual
+	requestsEqual := isEqual(toUpdateToCompare.Status.Requested, existingToCompare.Status.Requested)
+	limitsEqual := isEqual(toUpdateToCompare.Status.Limits, existingToCompare.Status.Limits)
+	return statusEqual && specEqual && nodeNameEqual && labelsEqual && annotationsEqual && requestsEqual && limitsEqual
 }
 
-func (m *MachinesSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Machine) (*v3.Machine, error) {
+func (m *MachinesSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Machine, pods map[string][]*corev1.Pod) (*v3.Machine, error) {
 	var machine *v3.Machine
 	if existing == nil {
 		machine = &v3.Machine{
@@ -261,8 +287,21 @@ func (m *MachinesSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Ma
 		machine = existing.DeepCopy()
 		machine.Spec.NodeSpec = *node.Spec.DeepCopy()
 		machine.Status.NodeStatus = *node.Status.DeepCopy()
-		machine.Status.Requested = existing.Status.Requested
-		machine.Status.Limits = existing.Status.Limits
+	}
+
+	requests, limits := aggregateRequestAndLimitsForNode(pods[node.Name])
+	if machine.Status.Requested == nil {
+		machine.Status.Requested = corev1.ResourceList{}
+	}
+	if machine.Status.Limits == nil {
+		machine.Status.Limits = corev1.ResourceList{}
+	}
+
+	for name, quantity := range requests {
+		machine.Status.Requested[name] = quantity
+	}
+	for name, quantity := range limits {
+		machine.Status.Limits[name] = quantity
 	}
 
 	machine.Status.NodeAnnotations = node.Annotations
@@ -271,4 +310,111 @@ func (m *MachinesSyncer) convertNodeToMachine(node *corev1.Node, existing *v3.Ma
 	machine.APIVersion = "management.cattle.io/v3"
 	machine.Kind = "Machine"
 	return machine, nil
+}
+
+func (m *MachinesSyncer) getNonTerminatedPods() (map[string][]*corev1.Pod, error) {
+	pods := make(map[string][]*corev1.Pod)
+	fromCache, err := m.pods.List("", labels.NewSelector())
+	if err != nil {
+		return pods, err
+	}
+
+	for _, pod := range fromCache {
+		if pod.Spec.NodeName == "" || pod.DeletionTimestamp != nil {
+			continue
+		}
+		// kubectl uses this cache to filter out the pods
+		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
+			continue
+		}
+		var nodePods []*corev1.Pod
+		if fromMap, ok := pods[pod.Spec.NodeName]; ok {
+			nodePods = fromMap
+		}
+		nodePods = append(nodePods, pod)
+		pods[pod.Spec.NodeName] = nodePods
+	}
+	return pods, nil
+}
+
+func aggregateRequestAndLimitsForNode(pods []*corev1.Pod) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
+	requests, limits := map[corev1.ResourceName]resource.Quantity{}, map[corev1.ResourceName]resource.Quantity{}
+	podsData := make(map[string]map[string]map[corev1.ResourceName]resource.Quantity)
+	if pods != nil {
+		//podName -> req/limit -> data
+		for _, pod := range pods {
+			podsData[pod.Name] = make(map[string]map[corev1.ResourceName]resource.Quantity)
+			requests, limits := getPodData(pod)
+			podsData[pod.Name]["requests"] = requests
+			podsData[pod.Name]["limits"] = limits
+		}
+		requests[corev1.ResourcePods] = *resource.NewQuantity(int64(len(pods)), resource.DecimalSI)
+	}
+	for _, podData := range podsData {
+		podRequests, podLimits := podData["requests"], podData["limits"]
+		addMap(podRequests, requests)
+		addMap(podLimits, limits)
+	}
+	return requests, limits
+}
+
+func isEqual(data1 map[corev1.ResourceName]resource.Quantity, data2 map[corev1.ResourceName]resource.Quantity) bool {
+	if data1 == nil && data2 == nil {
+		return true
+	}
+	if data1 == nil || data2 == nil {
+		return false
+	}
+	for key, value := range data1 {
+		if _, exists := data2[key]; !exists {
+			return false
+		}
+		value2 := data2[key]
+		if value.Value() != value2.Value() {
+			return false
+		}
+	}
+	return true
+}
+
+func getPodData(pod *corev1.Pod) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
+	requests, limits := map[corev1.ResourceName]resource.Quantity{}, map[corev1.ResourceName]resource.Quantity{}
+	for _, container := range pod.Spec.Containers {
+		addMap(container.Resources.Requests, requests)
+		addMap(container.Resources.Limits, limits)
+	}
+
+	for _, container := range pod.Spec.InitContainers {
+		addMapForInit(container.Resources.Requests, requests)
+		addMapForInit(container.Resources.Limits, limits)
+	}
+	return requests, limits
+}
+
+func machineRequestAndLimitsChanged(cnode *v3.Machine, requests map[corev1.ResourceName]resource.Quantity, limits map[corev1.ResourceName]resource.Quantity) bool {
+	return !isEqual(requests, cnode.Status.Requested) || !isEqual(limits, cnode.Status.Limits)
+}
+
+func addMap(data1 map[corev1.ResourceName]resource.Quantity, data2 map[corev1.ResourceName]resource.Quantity) {
+	for name, quantity := range data1 {
+		if value, ok := data2[name]; !ok {
+			data2[name] = *quantity.Copy()
+		} else {
+			value.Add(quantity)
+			data2[name] = value
+		}
+	}
+}
+
+func addMapForInit(data1 map[corev1.ResourceName]resource.Quantity, data2 map[corev1.ResourceName]resource.Quantity) {
+	for name, quantity := range data1 {
+		value, ok := data2[name]
+		if !ok {
+			data2[name] = *quantity.Copy()
+			continue
+		}
+		if quantity.Cmp(value) > 0 {
+			data2[name] = *quantity.Copy()
+		}
+	}
 }
