@@ -41,7 +41,7 @@ func Register(cluster *config.ClusterContext) {
 		clusterSecretsClient: clusterSecretsClient,
 		managementSecrets:    cluster.Management.Core.Secrets("").Controller().Lister(),
 	}
-	cluster.Core.Namespaces("").AddSyncHandler(n.sync)
+	cluster.Core.Namespaces("").AddHandler("secretsController", n.sync)
 	cluster.Management.Core.Secrets("").AddLifecycle("secretsController", s)
 }
 
@@ -105,7 +105,7 @@ func (s *Controller) Remove(obj *corev1.Secret) (*corev1.Secret, error) {
 
 	for _, namespace := range clusterNamespaces {
 		logrus.Infof("Deleting secret [%s] in namespace [%s]", obj.Name, namespace.Name)
-		if err := s.clusterSecretsClient.DeleteNamespace(obj.Name, namespace.Name, &metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+		if err := s.clusterSecretsClient.DeleteNamespaced(namespace.Name, obj.Name, &metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
 			return nil, err
 		}
 	}
