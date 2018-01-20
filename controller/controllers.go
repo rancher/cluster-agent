@@ -8,8 +8,8 @@ import (
 	"github.com/rancher/cluster-agent/controller/healthsyncer"
 	"github.com/rancher/cluster-agent/controller/nodesyncer"
 	"github.com/rancher/cluster-agent/controller/secret"
-	"github.com/rancher/types/config"
 	helmController "github.com/rancher/helm-controller/controller"
+	"github.com/rancher/types/config"
 	workloadController "github.com/rancher/workload-controller/controller"
 )
 
