@@ -28,7 +28,8 @@ var (
 		Init(authnTypes).
 		Init(schemaTypes).
 		Init(stackTypes).
-		Init(userTypes)
+		Init(userTypes).
+		Init(globalTypes)
 )
 
 func schemaTypes(schemas *types.Schemas) *types.Schemas {
@@ -197,6 +198,7 @@ func authnTypes(schemas *types.Schemas) *types.Schemas {
 		MustImport(&Version, v3.LocalCredential{}).
 		MustImport(&Version, v3.GithubCredential{}).
 		MustImport(&Version, v3.ChangePasswordInput{}).
+		MustImport(&Version, v3.SetPasswordInput{}).
 		MustImportAndCustomize(&Version, v3.Token{}, func(schema *types.Schema) {
 			schema.CollectionActions = map[string]types.Action{
 				"login": {
@@ -208,9 +210,14 @@ func authnTypes(schemas *types.Schemas) *types.Schemas {
 		}).
 		MustImportAndCustomize(&Version, v3.User{}, func(schema *types.Schema) {
 			schema.ResourceActions = map[string]types.Action{
-				"changepassword": {
-					Input:  "changePasswordInput",
+				"setpassword": {
+					Input:  "setPasswordInput",
 					Output: "user",
+				},
+			}
+			schema.CollectionActions = map[string]types.Action{
+				"changepassword": {
+					Input: "changePasswordInput",
 				},
 			}
 		})
@@ -232,7 +239,6 @@ func stackTypes(schema *types.Schemas) *types.Schemas {
 
 func userTypes(schema *types.Schemas) *types.Schemas {
 	return schema.
-		AddMapperForType(&Version, v3.Preference{}).
 		MustImportAndCustomize(&Version, v3.Preference{}, func(schema *types.Schema) {
 			schema.MustCustomizeField("name", func(f types.Field) types.Field {
 				f.Required = true
@@ -240,6 +246,18 @@ func userTypes(schema *types.Schemas) *types.Schemas {
 			})
 			schema.MustCustomizeField("namespaceId", func(f types.Field) types.Field {
 				f.Required = false
+				return f
+			})
+		})
+}
+
+func globalTypes(schema *types.Schemas) *types.Schemas {
+	return schema.
+		AddMapperForType(&Version, v3.ListenConfig{}, m.DisplayName{}).
+		MustImport(&Version, v3.ListenConfig{}).
+		MustImportAndCustomize(&Version, v3.Setting{}, func(schema *types.Schema) {
+			schema.MustCustomizeField("name", func(f types.Field) types.Field {
+				f.Required = true
 				return f
 			})
 		})
