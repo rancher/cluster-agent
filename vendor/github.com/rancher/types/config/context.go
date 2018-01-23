@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/event"
 	"github.com/rancher/norman/signal"
@@ -230,6 +231,11 @@ func NewClusterContext(managementConfig, config rest.Config, clusterName string)
 		return nil, err
 	}
 
+	_, err = context.K8sClient.Discovery().ServerVersion()
+	if err != nil {
+		return nil, errors.Wrap(err, "could not contact server")
+	}
+
 	context.Apps, err = appsv1beta2.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -288,6 +294,10 @@ func NewWorkloadContext(config rest.Config, clusterName string) (*WorkloadContex
 	context := &WorkloadContext{
 		RESTConfig:  config,
 		ClusterName: clusterName,
+		Schemas: types.NewSchemas().
+			AddSchemas(managementSchema.Schemas).
+			AddSchemas(clusterSchema.Schemas).
+			AddSchemas(projectSchema.Schemas),
 	}
 
 	context.K8sClient, err = kubernetes.NewForConfig(&config)
